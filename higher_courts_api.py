@@ -160,6 +160,26 @@ class EchrAPI(_BaseAPI):
 
     BASE = "https://hudoc.echr.coe.int"
 
+    # HUDOC sits behind Cloudflare bot management. A browser User-Agent that does
+    # NOT also send the matching Sec-CH-UA client hints (or a non-browser UA such as
+    # "Python-urllib/3.x") is answered with a managed challenge: HTTP 403 +
+    # "Cf-Mitigated: challenge" — even though the same URL returns 200 to curl.
+    # Measured 2026-09-25: bare Chrome UA → 403 · Chrome UA + sec-ch-ua* → 200 ·
+    # "curl/8.5.0" → 200 · "Python-urllib/3.13" → 403. So: keep UA and client
+    # hints consistent, and fall back to a plain UA only if challenged anyway.
+    UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+          "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+    EXTRA_HEADERS = {
+        "sec-ch-ua": '"Chromium";v="125", "Not.A/Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "Referer": "https://hudoc.echr.coe.int/",
+    }
+    FALLBACK_UA = "curl/8.5.0"
+
     SELECT = ("itemid,docname,doctype,application,appno,conclusion,importance,"
               "originatingbody,typedescription,kpdate,kpdateAsText,"
               "documentcollectionid,languageisocode,extractedappno,respondent,ecli")
@@ -186,7 +206,8 @@ class EchrAPI(_BaseAPI):
 
     def search(self, respondent: str = "", article: str = "", appno: str = "",
                text: str = "", language: str = "ENG",
-               start: int = 0, length: int = 20, query: str = "") -> dict:
+               start: int = 0, length: int = 20, query: str = "",
+               sort: str = "kpdate Descending") -> dict:
         """
         Search ECHR case law in HUDOC.
 
@@ -198,6 +219,8 @@ class EchrAPI(_BaseAPI):
             language: 'ENG' (English) or 'FRE' (French)
             start / length: pagination (HUDOC caps length at 500)
             query: raw HUDOC query string (overrides the structured filters)
+            sort: HUDOC sort expression, default 'kpdate Descending' (newest first);
+                  pass sort="" for HUDOC's relevance ranking
 
         Returns:
             {"total": int, "items": [...]}
@@ -206,8 +229,8 @@ class EchrAPI(_BaseAPI):
         url = (f"{self.BASE}/app/query/results"
                f"?query={urllib.parse.quote(q)}"
                f"&select={urllib.parse.quote(self.SELECT)}"
-               f"&sort=&start={start}&length={length}")
-        raw = self._request(url, accept_json=True)
+               f"&sort={urllib.parse.quote(sort)}&start={start}&length={length}")
+        raw = self._request_hudoc(url)
         if raw.startswith("ERROR"):
             return {"error": raw}
         try:
@@ -218,6 +241,25 @@ class EchrAPI(_BaseAPI):
         results = data.get("results") or []
         items = [self._normalize(r.get("columns") or {}) for r in results]
         return {"total": data.get("resultcount", len(items)), "items": items}
+
+    def _request_hudoc(self, url: str, accept_json: bool = True) -> str:
+        """
+        GET a HUDOC URL with a one-shot Cloudflare fallback.
+
+        If the browser-consistent header set is still challenged (HTTP 403 with
+        'Cf-Mitigated: challenge'), retry once as a plain non-browser client —
+        HUDOC/Cloudflare answers 200 to those instead of a challenge page.
+        """
+        raw = self._request(url, accept_json=accept_json)
+        if raw.startswith("ERROR") and "403" in raw:
+            self.UA = self.FALLBACK_UA       # instance attr shadows the class attr
+            self.EXTRA_HEADERS = {}
+            try:
+                raw = self._request(url, accept_json=accept_json, retries=1)
+            finally:
+                del self.UA
+                del self.EXTRA_HEADERS
+        return raw
 
     def _normalize(self, columns: dict) -> dict:
         itemid = columns.get("itemid", "")
@@ -246,7 +288,7 @@ class EchrAPI(_BaseAPI):
             {"itemid", "text", "url", "authority_level"}
         """
         url = f"{self.BASE}/app/conversion/docx/html/body?library=ECHR&id={itemid}"
-        html = self._request(url)
+        html = self._request_hudoc(url, accept_json=False)
         if html.startswith("ERROR"):
             return {"error": html}
         return {

@@ -117,6 +117,12 @@ run `$env:PYTHONIOENCODING="utf-8"; python matsne_api.py`.
 - **HUDOC query** must include `contentsitename:ECHR` and exclude `doctype:PR` (press releases) —
   the wrapper builds this; itemids look like `001-57574`
 - **HUDOC full text** is an HTML body (numeric entities) — run through `_html_to_text` (unescape)
+- **HUDOC is behind Cloudflare bot management** — a browser UA *without* the matching
+  `sec-ch-ua*` client hints, or a non-browser UA such as `Python-urllib/3.x`, is answered with a
+  managed challenge (HTTP 403 + `Cf-Mitigated: challenge`) even though `curl` gets 200 on the same
+  URL. `EchrAPI` sends a browser-consistent header set and retries once as a plain
+  `curl/<version>` client if challenged anyway. When a 403 appears, check the `Cf-Mitigated`
+  response header before blaming the endpoint.
 
 ## PRO access
 

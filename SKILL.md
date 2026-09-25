@@ -438,7 +438,15 @@ GET + JSON. HUDOC rate-limits aggressively, so the default delay is 0.5s.
 
 `search` params: `respondent` (state code, e.g. `GEO`), `article` (e.g. `6`, `6-1`, `8`),
 `appno` (application number), `text` (free-text keyword), `language` (`ENG`/`FRE`),
-`start`/`length` (pagination, `length` max 500), and `query` (raw HUDOC query override).
+`start`/`length` (pagination, `length` max 500), `query` (raw HUDOC query override), and `sort`
+(HUDOC sort expression — default `kpdate Descending`, i.e. newest judgments first; pass `sort=""`
+for HUDOC's relevance ranking).
+
+**Cloudflare bot management (2026-09-25):** HUDOC is fronted by Cloudflare, which challenges
+non-browser-looking clients with `HTTP 403` + `Cf-Mitigated: challenge` — the *same* URL returns
+200 to `curl`. A bare browser UA (no `sec-ch-ua*` hints) and `Python-urllib/3.x` are both
+challenged, so `EchrAPI` sends a browser-consistent UA + client hints and falls back to a plain
+`curl/<version>` UA if a 403 still occurs.
 
 The wrapper builds the mandatory query parts — `contentsitename:ECHR` plus exclusion of press
 releases (`doctype:PR`, `HFCOMOLD`, `HECOMOLD`) — so results are real judgments. `itemid`s look

@@ -84,6 +84,10 @@ class _BaseAPI:
     UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
           "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
 
+    # Subclasses whose origin wants extra headers (e.g. HUDOC/Cloudflare matches
+    # a browser UA against the Sec-CH-UA client hints) may override this. Default: none.
+    EXTRA_HEADERS = {}
+
     def __init__(self, rate_limit: float = 0.3):
         self.rate_limit = rate_limit
         self._cookies = {}
@@ -105,6 +109,7 @@ class _BaseAPI:
             "Accept": "application/json" if accept_json else "text/html,application/xhtml+xml",
             "Accept-Language": "ka,en;q=0.9",
         }
+        headers.update(self.EXTRA_HEADERS)
         if accept_json:
             headers["X-Requested-With"] = "XMLHttpRequest"
         if self._cookies:
