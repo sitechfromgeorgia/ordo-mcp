@@ -54,6 +54,7 @@ api.today_documents()  # → [{id, title, date}, ...]
 | 5 | `/ka/document/comment/{id}/read?part_id=X` | GET | `[{comment}]` or `[]` | 1.0s | Read comments |
 | 6 | `/ka/document/linked/{id}/{anchor}` | GET | `{html: "..."}` | 1.0s | Inline HTML fragment |
 | 7 | `/annotation/api/search?uri=...` | GET | `{total, rows}` | 1.0s | Annotation search |
+| — | `/ka/document/view/{id}?publication=N` | GET | HTML | 2–4s | Consolidated version N (0 = original); bot-protected like any view page |
 
 ### Authenticated Endpoints (require login)
 
@@ -76,12 +77,16 @@ api.today_documents()  # → [{id, title, date}, ...]
 
 ### MCP Server
 
-The repo includes an MCP server (`mcp_server.py`) that exposes the API as 10 tools + 2 resources:
+The repo includes an MCP server (`mcp_server.py`) that exposes the matsne API as 14 tools + 2 resources (30 tools / 3 prompts in total — see the other sections):
 
 **Tools:**
 - `matsne_suggest` — keyword autocomplete
 - `matsne_search` — filtered search (date, type, organ, pagination)
-- `matsne_get_document` — full document (meta + text + tree + back-refs + comments)
+- `matsne_get_document` — full document (meta + text + tree + back-refs + comments); `publication` / `as_of_date` / `max_chars`
+- `matsne_get_article` — one article by citation (law name or doc_id + article, optional part, `as_of_date`)
+- `matsne_list_versions` — consolidated versions + amending acts
+- `matsne_compare_versions` — article-level diff between two versions
+- `matsne_check_status` — in force / expired, latest version, recent amendments
 - `matsne_get_tree` — document structure tree
 - `matsne_get_back_references` — citing documents
 - `matsne_get_comments` — user comments
@@ -220,12 +225,46 @@ Accept-Language: ka,en;q=0.9
 **Output:** `{"html": "<a name='...'>...</a><table>..."}`
 - Returns HTML fragment for inline display of linked documents
 - Used when hovering over document links within other documents
-- `anchor` format: `DOCUMENT:1;HEADER:1;` or `DOCUMENT:1;ARTICLE:1;`
+- `anchor` format: `DOCUMENT:1;HEADER:1;` or `DOCUMENT:1;ARTICLE:1;`, or a view-page anchor `part_N`
+- **`anchor=document` returns the WHOLE current document** (e.g. ~1.2 MB for the Civil Procedure Code) — the bot-proof way to get full text; `get_text_via_linked()` and `get_article()` use it as fallback
+- ⚠️ `part_N` anchors from the **tree** endpoint are stale (they follow an older numbering — Civil Procedure Code tree says `part_304` for art. 178, the live page uses `part_185`). Never use tree anchors to fetch a specific article.
 
 ### 7. GET /annotation/api/search — Annotations
 
 **Parameters:** `uri=document/view/{id}` (URL-encoded)
 **Output:** `{"total": 0, "rows": []}`
+
+## Versions, Articles, Status (legal research)
+
+View pages carry everything needed for "which text applied when":
+
+| Data | Where on `/ka/document/view/{id}` | Parsed by |
+|---|---|---|
+| Consolidated versions | sidebar `<a href="/ka/document/view/{id}?publication=N" class="list-group-item">DD/MM/YYYY</a>`; current one has `class="active list-group-item"` | `_parse_versions()`, `_active_version()` |
+| Amending acts | `#changesModal` → `<a href="/ka/document/view/{amending_id}" class="row list-group-item">` with index, მიღების/გამოქ. თარიღი, number, title | `_parse_amendments()` |
+| Expiry | metadata row `ძალის დაკარგვის თარიღი` (absent while in force) | `parse_document_meta()` → `status`, `expiry_date` |
+| Articles | `<a name="part_N">მუხლი 361. …</a>`; superscripts as `მუხლი 1507<sup>1</sup>` | `_split_articles()` |
+
+- **Version date = adoption date of the amending act**, not entry into force (Civil Code v140: adopted 25/06/2026,
+  published 29/06/2026). `version_for_date()` picks the latest version dated on/before the target date and returns
+  the amending act + a caveat so the agent can check transitional provisions.
+- Article keys: `"361"`, `"1507^1"` (input also accepts `1507¹`); text renders superscripts as `¹²³`.
+- English: `get_article(..., lang="en")` reads `/en/document/view/{id}` (no `part_N` anchors —
+  split on `Article N –` headings) and returns `pdf_url` = `/en/document/download/{id}/{pub}/en/pdf`
+  plus a `translation_caveat` (unofficial; Georgian text is authentic). Untranslated documents
+  serve Georgian text on the English URL → error "No English translation".
+- `get_full_text(doc_id, publication)` — complete text (no 500-line cap), view page or linked fallback.
+- Core codes resolve without a request via `MatsneAPI.CORE_LAWS` (civil 31702, civil procedure 29962,
+  criminal 16426, criminal procedure 90034, general administrative 16270, administrative procedure 16492,
+  administrative offences 28216, tax 1043717, labour 1155567, constitution 30346); other names go through `suggest()`.
+
+```python
+api.get_article("361", law="სამოქალაქო კოდექსი", part=2)          # current text of art. 361 §2
+api.get_article("178", law="civil procedure code", as_of_date="2015-03-01")
+api.list_versions(31702)                                           # 141 versions + 140 amending acts
+api.compare_versions(31702, 138, 140)                              # added / removed / modified articles + diffs
+api.check_status(26350)                                            # old Labour Code → in_force False, expiry 27/12/2010
+```
 
 ## Drupal.settings API Map
 
@@ -273,7 +312,7 @@ Found in `Drupal.settings.document_view.api` on document pages:
 
 ### Document Text Fallback
 
-`get_document()` auto-falls back to `_collect_anchors()` + `get_text_via_linked()` when HTML page is blocked. It walks the document tree, fetches each anchor via the `/ka/document/linked/` API endpoint (never blocked), and concatenates the plain text.
+`get_document()` auto-falls back to `get_text_via_linked()` when the HTML page is blocked. It fetches `/ka/document/linked/{id}/document` (never blocked), which returns the whole current text; only if that is empty does it walk tree anchors one by one. The fallback has no historical versions — `?publication=N` exists only on the view page.
 
 ### Voice Server Anti-Bot
 The voice server uses a special anti-bot mechanism:
@@ -456,3 +495,40 @@ like `001-57574`. Full text is an HTML body with numeric entities — `_html_to_
 call the `echr_*` tools **sequentially** (never fire several in one batch), and if a call returns
 an empty/error result, pause a few seconds and retry once. This is server-side throttling, not a
 wrapper bug — the 0.5s delay only helps for serial calls.
+
+
+---
+
+# Parliament API Reference (`parliament_api.py`)
+
+info.parliament.ge is an ExtJS single-page app; reverse-engineered from `app.js` + network
+traffic (2026-10-29). Plain urllib works (Cloudflare only challenges the HTML shell).
+
+| Method | Endpoint | Returns |
+|--------|----------|---------|
+| `search_bills(query, bill_type_id, page, limit)` | `GET /law/1/bill?searchItem=&billTypeId=&page=&start=&limit=&sort=` | `{total, bills}` |
+| `get_bill(id)` | `GET /law/1/bill/{id}` + `/law/1/bill/{id}/billReview` | bill + `stages` |
+| (per stage) | `GET /law/1/billReview/{review_id}/billReviewContent` | files → `/file/1/BillReviewContent/{file_id}` |
+| (per stage) | `GET /law/1/billReview/{review_id}/billCommittee` | committees (lead / mandatory opinion) |
+| `get_package_bills(package_id)` | `GET /law/1/billPackage/{id}/bill` | bills in one package |
+| `bill_types()` | `GET /law/lib/1/billType` | 50 types (1 law, 11 organic, 12 constitutional, 2 resolution) |
+
+- Dates are `DD-MM-YYYY`. Stages: ინიციირებული ვარიანტი → I/II/III მოსმენა (+ დადგენილება) → კანონი;
+  `voteY`/`voteN` carry the plenary votes.
+- Pitfalls: `limit` max 50; `billTypeId` ignored together with `searchItem` (client-side filter);
+  `searchItem` matches package names too (`name_match` flag); sort by `billPackage.registrationDate`.
+
+# Research Helpers (`research.py`)
+
+- `verify_quote(text, quote)` → `{verdict: exact|close|partial|not_found, similarity, matched_text, context}`.
+  Normalizes case, whitespace, quote marks (`„“«»`) and dashes; fuzzy search is a sliding
+  `difflib.SequenceMatcher` window (coarse step len/5, refined ±step).
+- `LegalResearch.verify_citation(quote, source, **ids)` — `source`: `matsne` (law/doc_id, article,
+  part, as_of_date), `ecd` (decision_document_id, instance_id), `supreme` (case_id, palata),
+  `constitutional` (legal_id), `echr` (itemid).
+- `LegalResearch.research_article(article, law, doc_id, as_of_date)` — article + practice:
+  constcourt `intext="<law genitive> <phrase>"`, Supreme Court `texts=[phrase, law genitive]` in the
+  chamber(s) from `LAW_CONTEXT`, ecd `texts=[full phrase]`. ecd full-text matching is strict
+  (few hits); the Supreme Court search is the productive one. Grand Chamber PDFs are not searchable.
+- `article_phrase(key)` — Georgian ordinal citation stems: 1 → `პირველი მუხლ`, 2–20 and multiples of
+  20 → `მე-N მუხლ`, others → `N-ე მუხლ`, superscripts → `151¹ მუხლ`.

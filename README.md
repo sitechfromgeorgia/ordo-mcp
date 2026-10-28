@@ -69,7 +69,11 @@ Please walk me through each step and check as we go.
 |---|---|
 | `matsne_suggest` | სწრაფი ძებნა საკვანძო სიტყვით |
 | `matsne_search` | ძებნა ფილტრებით (თარიღი, ტიპი, ორგანო, ნომერი) |
-| `matsne_get_document` | დოკუმენტი: მეტამონაცემები + ტექსტი + სტრუქტურა + კომენტარები |
+| `matsne_get_document` | დოკუმენტი: მეტამონაცემები + ტექსტი + სტრუქტურა + კომენტარები (ნებისმიერი რედაქცია) |
+| `matsne_get_article` | კონკრეტული მუხლი ციტატით ("სამოქალაქო კოდექსის 361-ე მუხლი"), ნაწილით და თარიღით მოქმედი რედაქციით |
+| `matsne_list_versions` | დოკუმენტის ყველა რედაქცია + ცვლილების შემტანი აქტები |
+| `matsne_compare_versions` | ორ რედაქციას შორის რა შეიცვალა — მუხლების მიხედვით |
+| `matsne_check_status` | მოქმედია თუ ძალადაკარგული, ბოლო ცვლილებები |
 | `matsne_get_tree` | დოკუმენტის სტრუქტურის ხე (მუხლები, თავები) |
 | `matsne_get_back_references` | რომელი დოკუმენტები ეყრდნობა ამას |
 | `matsne_get_comments` | კომენტარები |
@@ -102,6 +106,23 @@ Please walk me through each step and check as we go.
 | `constitutional_get_act` | საკონსტიტუციო აქტის სრული ტექსტი |
 | `echr_search` | ადამიანის უფლებათა ევროპული სასამართლოს (HUDOC) ძებნა |
 | `echr_get_case` | ECHR გადაწყვეტილების სრული ტექსტი |
+
+### 🏛️ პარლამენტი — კანონპროექტები (ახალი)
+
+| Tool | რას აკეთებს |
+|---|---|
+| `parliament_search_bills` | კანონპროექტების ძებნა — რა იცვლება მალე კანონმდებლობაში |
+| `parliament_get_bill` | კანონპროექტის ისტორია: მოსმენები, ხმები, კომიტეტები, ფაილები |
+
+### 🔬 იურიდიული კვლევა (ახალი)
+
+| Tool | რას აკეთებს |
+|---|---|
+| `verify_citation` | ამოწმებს, მართლა წერია თუ არა ციტატა მითითებულ კანონში/გადაწყვეტილებაში (ჰალუცინაციის წინააღმდეგ) |
+| `research_article` | მუხლი + მისი სასამართლო პრაქტიკა ერთი ზარით, ავტორიტეტის მიხედვით |
+
+**Prompts (შაბლონები):** `legal_memo` (იურიდიული მემორანდუმი), `case_analysis` (IRAC ანალიზი),
+`law_change_review` (რა შეიცვალა კანონში + მოლოდინში მყოფი კანონპროექტები).
 
 ### 📖 ინსტალაცია
 
@@ -167,6 +188,7 @@ uv run mcp_server.py
 - _"მოძებნე დღევანდელი გამოქვეყნებული დოკუმენტები"_
 - _"მოიძიე კანონები შრომის შესახებ ბოლო 30 დღეში"_
 - _"რა წერია 6840140 დოკუმენტში? გააანალიზე"_
+- _"რა ეწერა სამოქალაქო კოდექსის 1145-ე მუხლში 2020 წლის 1 იანვარს და რა შეიცვალა მას შემდეგ?"_
 - _"ვინ მიიღო 6840140, როდის გამოქვეყნდა, რა ტიპისაა?"_
 - _"მოძებნე 'პერსონალური მონაცემები' — აქტიური კანონების სია"_
 - _"შეამოწმე რა კანონები გამოქვეყნდა დღეს"_
@@ -195,7 +217,11 @@ An **MCP server** that connects AI assistants to [matsne.gov.ge](https://matsne.
 |---|---|
 | `matsne_suggest` | Fast keyword autocomplete |
 | `matsne_search` | Filtered search (date, type, organ, pagination) |
-| `matsne_get_document` | Full document: meta + text + tree + comments |
+| `matsne_get_document` | Full document: meta + text + tree + comments (any version) |
+| `matsne_get_article` | One article by citation, optional part, as in force on a given date |
+| `matsne_list_versions` | All consolidated versions + amending acts |
+| `matsne_compare_versions` | Article-level diff between two versions |
+| `matsne_check_status` | In force or expired, latest amendments |
 | `matsne_get_tree` | Document structure (articles, chapters) |
 | `matsne_get_back_references` | Citing documents |
 | `matsne_get_comments` | User comments |
@@ -229,6 +255,22 @@ so agents weigh precedent correctly.
 | `echr_search` | European Court of Human Rights (HUDOC) search |
 | `echr_get_case` | Full ECHR decision text |
 
+### 🏛️ Parliament — bills (new)
+
+| Tool | Purpose |
+|---|---|
+| `parliament_search_bills` | Search bills — what is about to change in the law |
+| `parliament_get_bill` | Bill history: hearings, votes, committees, files |
+
+### 🔬 Legal research (new)
+
+| Tool | Purpose |
+|---|---|
+| `verify_citation` | Checks a quote really appears in the cited law/decision (anti-hallucination) |
+| `research_article` | An article + its court practice in one call, by authority |
+
+**Prompts:** `legal_memo`, `case_analysis` (IRAC), `law_change_review`.
+
 ### Quick install
 
 ```sh
@@ -256,6 +298,7 @@ Then add to Claude Desktop:
 - _"Search for today's published documents on matsne.gov.ge"_
 - _"Find laws about personal data published in the last month"_
 - _"Get full information on document #6840140 and summarize it"_
+- _"What did Article 361 of the Civil Code say on 1 January 2010?"_
 
 ---
 

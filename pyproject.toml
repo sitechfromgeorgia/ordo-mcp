@@ -1,6 +1,6 @@
 [project]
 name = "matsne-mcp"
 version = "0.2.0"
-description = "MCP server for Georgia's legal ecosystem (matsne + ecd.court.ge + supremecourt.ge)"
+description = "MCP server for Georgia's legal ecosystem (matsne + courts + constcourt + ECHR + parliament) with citation verification"
 requires-python = ">=3.10"
 dependencies = ["mcp>=1.0.0,<2.0.0"]

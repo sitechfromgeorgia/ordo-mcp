@@ -1,4 +1,4 @@
-# AGENTS.md — Georgia Legal Ecosystem MCP (Matsne + Courts)
+# AGENTS.md — Georgia Legal Ecosystem MCP (Matsne + Courts + Parliament)
 
 ## What this is
 
@@ -10,8 +10,12 @@ everything as tools/resources for AI agents:
   `SupremeCourtAPI` (supremecourt.ge cassation + Grand Chamber)
 - **`higher_courts_api.py`** — apex courts: `ConstitutionalCourtAPI` (constcourt.ge) +
   `EchrAPI` (HUDOC — European Court of Human Rights)
+- **`parliament_api.py`** — `ParliamentAPI` (info.parliament.ge): bills and their legislative history
+- **`research.py`** — `LegalResearch`: cross-source citation verification + article practice search
+  (takes the wrapper instances; no HTTP of its own)
 
-**Files:** `matsne_api.py`, `court_api.py`, `higher_courts_api.py`, `SKILL.md` (reference docs),
+**Files:** `matsne_api.py`, `court_api.py`, `higher_courts_api.py`, `parliament_api.py`,
+`research.py`, `SKILL.md` (reference docs),
 `mcp_server.py` (MCP server), `pyproject.toml`, `AGENTS.md`, `README.md`, `LICENSE`
 
 ## Key facts
@@ -27,6 +31,8 @@ everything as tools/resources for AI agents:
 python matsne_api.py                        # live test: matsne legislation
 python court_api.py                         # live test: ecd + supreme + grand chamber
 python higher_courts_api.py                 # live test: constcourt + echr (HUDOC)
+python parliament_api.py                    # live test: parliament bills
+python research.py                          # live test: verify_citation + research_article
 uv run mcp_server.py                        # start MCP server (stdio transport)
 uv run python -c "from mcp_server import *" # verify imports
 ```
@@ -79,11 +85,32 @@ run `$env:PYTHONIOENCODING="utf-8"; python matsne_api.py`.
 - **`authority_level`**: 7=ECHR (supranational, binding on Georgia), 6=Constitutional Court
   (can strike down laws) — above all the domestic court levels in `court_api.py`
 
+### Parliament Wrapper (`parliament_api.py`)
+
+- `ParliamentAPI(_BaseAPI)` — info.parliament.ge is an ExtJS app; its REST endpoints
+  (`/law/1/bill`, `/law/1/bill/{id}/billReview`, `/law/1/billReview/{id}/billReviewContent`,
+  `/file/1/BillReviewContent/{file_id}`) return JSON/files to plain urllib (no Cloudflare block)
+- `search_bills()` newest first, `get_bill()` = stages + votes + committees + file URLs
+
+### Research (`research.py`)
+
+- `verify_quote(text, quote)` — normalized exact match, else sliding-window `difflib` fuzzy match;
+  verdict `exact` / `close` (≥0.85) / `partial` (≥0.6) / `not_found`
+- `LegalResearch.verify_citation()` — fetches the cited source (matsne article/document/version,
+  ecd, supreme, constitutional, echr) and runs `verify_quote`
+- `LegalResearch.research_article()` — article text + Constitutional Court / Supreme Court /
+  ecd full-text hits for `"<law genitive> <N>-ე მუხლ"` (`article_phrase()` builds the Georgian
+  ordinal: `პირველი`, `მე-2`…`მე-20`, `მე-40`, `21-ე`, `361-ე`, `151¹`); `LAW_CONTEXT` maps core
+  codes to their genitive name and Supreme Court chamber
+
 ### MCP Server (`mcp_server.py`)
 
-- Imports `MatsneAPI`, `EcdCourtAPI`, `SupremeCourtAPI`, `ConstitutionalCourtAPI`, `EchrAPI` —
-  wrappers untouched, MCP is a pure transport layer
-- 10 `matsne_*` + 4 `court_*` + 4 `supreme_*` + 2 `constitutional_*` + 2 `echr_*` tools
+- Imports `MatsneAPI`, `EcdCourtAPI`, `SupremeCourtAPI`, `ConstitutionalCourtAPI`, `EchrAPI`,
+  `ParliamentAPI`, `LegalResearch` — wrappers untouched, MCP is a pure transport layer
+- 14 `matsne_*` + 4 `court_*` + 4 `supreme_*` + 2 `constitutional_*` + 2 `echr_*` +
+  2 `parliament_*` + `verify_citation` + `research_article` = 30 tools
+- 3 prompts: `legal_memo`, `case_analysis` (IRAC), `law_change_review` — they share `_RULES`
+  (sources with URLs, as_of_date, check_status, authority order, verify every quote)
 - 6 resources: `matsne://document/{id}`, `matsne://today`, `court://decision/{id}/{instance}`,
   `supreme://case/{id}/{palata}`, `constitutional://act/{legal_id}`, `echr://case/{itemid}`
 - Tools prefixed by source to avoid namespace conflicts
@@ -92,11 +119,28 @@ run `$env:PYTHONIOENCODING="utf-8"; python matsne_api.py`.
 
 - **`DocumentPart`** in tree response can be a **single object `{}` OR an array `[]`** — always type-check
 - **HTML page fetch** (`/ka/document/view/{id}`) is **intermittently blocked** by bot detection — `get_document()` auto-falls back to `get_text_via_linked()` which always works via API
+- **`linked/{id}/document`** returns the whole current document text via the API — the bot-proof fallback for `get_text_via_linked()` and `get_article()`
+- **Tree anchors are stale** — `part_N` from `/document/tree` follow an older numbering than the live page; never fetch a specific article by a tree anchor (`get_article()` splits the page/linked HTML instead)
+- **Historical versions** (`?publication=N`, 0 = original) exist only on the view page; a version's date is the amending act's *adoption* date, not entry into force — `version_for_date()` returns the amending act + a caveat
+- **Article keys**: `"361"`, `"1507^1"` (input also `1507¹`); core codes resolve offline via `MatsneAPI.CORE_LAWS`
+- **English translations** (`/en/document/view/{id}`) have no `part_N` anchors — articles are split on
+  `Article N –` headings (`_ARTICLE_HEAD`); PDF at `/en/document/download/{id}/{publication}/en/pdf`.
+  Untranslated docs serve the Georgian text on the `/en/` URL — `get_article(lang="en")` reports that
 - **Voice server** uses `XZCookie` + `document.ZXKey` anti-bot — not bypassable without browser JS
 - Search with `query` param returns different HTML structure than plain search (panel-based vs link-based)
 - Titles may contain `<b>` tags from keyword highlighting — strip HTML when parsing
 - `is-ajax=1` param converts search results from HTML to JSON
 - All date params use `DD/MM/YYYY` format
+
+### Parliament gotchas
+
+- **`limit` > 50 returns an empty body** — `PAGE_MAX = 50`
+- **`billTypeId` is ignored when `searchItem` is set** — `search_bills()` then filters client-side
+  over the newest ≤500 text matches (`_search_filtered`) and reports `scanned`
+- **`searchItem` also matches the package name**, so sibling bills of a package show up —
+  `name_match` flags bills whose own name contains the query (sorted first when filtering)
+- **Sort by `billPackage.registrationDate`** — sorting by `id` is string-ordered server-side
+- Codes that are **organic laws** (e.g. Labour Code since 2013) are amended by `bill_type_id=11`, not 1
 
 ### Court practice gotchas
 

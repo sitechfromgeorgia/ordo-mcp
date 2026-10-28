@@ -6,6 +6,11 @@ Sources:
   - matsne.gov.ge    - legislation (საკანონმდებლო მაცნე)
   - ecd.court.ge     - common courts' decisions & acts (საქმისწარმოების სისტემა)
   - supremecourt.ge  - Supreme Court cassation + Grand Chamber decisions
+  - constcourt.ge    - Constitutional Court acts
+  - HUDOC            - European Court of Human Rights
+  - info.parliament.ge - bills (კანონპროექტები) and their legislative history
+Plus cross-source research (research.py): citation verification and
+article-level practice search, and MCP prompts for common legal workflows.
 
 Exposes search / full-text / classifiers / verification tools so any AI agent
 can research Georgian law and court practice end-to-end.
@@ -18,12 +23,16 @@ from mcp.server.fastmcp import FastMCP
 from matsne_api import MatsneAPI
 from court_api import EcdCourtAPI, SupremeCourtAPI
 from higher_courts_api import ConstitutionalCourtAPI, EchrAPI
+from parliament_api import ParliamentAPI
+from research import LegalResearch
 
 matsne = MatsneAPI()
 ecd = EcdCourtAPI()
 supreme = SupremeCourtAPI()
 constcourt = ConstitutionalCourtAPI()
 echr = EchrAPI()
+parliament = ParliamentAPI()
+research = LegalResearch(matsne, ecd, supreme, constcourt, echr)
 
 app = FastMCP(
     "matsne-ge",
@@ -40,7 +49,14 @@ app = FastMCP(
         "requests sequentially (one at a time, wait between calls) and never "
         "fire many in parallel; if a call returns an empty/error result, pause "
         "a few seconds and retry once. Verify every citation against the "
-        "returned stable URL before relying on it."
+        "returned stable URL before relying on it. "
+        "Legislation: cite articles via matsne_get_article (not by reading whole "
+        "codes); when the facts happened in the past, pass as_of_date so you "
+        "apply the version then in force; confirm an act is in force with "
+        "matsne_check_status. Before quoting any law or decision in an answer, "
+        "run verify_citation on the quote; research_article gathers an "
+        "article's court practice in one call; parliament_* tools show pending "
+        "bills that may change the law soon."
     ),
 )
 
@@ -73,9 +89,47 @@ def matsne_search(
     )
 
 
-@app.tool(description="Get full legislative document: metadata, text, structure tree, back-references, and comments in one call.")
-def matsne_get_document(doc_id: int) -> dict:
-    return matsne.get_document(doc_id)
+@app.tool(description="Get full legislative document: metadata (incl. status/expiry_date), text, structure tree, back-references, and comments in one call. Optional historical version: publication (0 = original text) or as_of_date (DD/MM/YYYY or YYYY-MM-DD). Text is cut at max_chars — for a single article use matsne_get_article instead of reading a whole code.")
+def matsne_get_document(doc_id: int, publication: int | None = None,
+                        as_of_date: str = "", max_chars: int = 20000) -> dict:
+    if as_of_date:
+        picked = matsne.version_for_date(doc_id, as_of_date)
+        if "error" in picked:
+            return picked
+        publication = picked["publication"]
+    doc = matsne.get_document(doc_id, publication)
+    if as_of_date:
+        doc["as_of_date"] = as_of_date
+        doc["version"] = picked
+    if max_chars and len(doc.get("text", "")) > max_chars:
+        doc["text_total_chars"] = len(doc["text"])
+        doc["text"] = doc["text"][:max_chars]
+        doc["text_truncated"] = True
+    return doc
+
+
+@app.tool(description="Get ONE article of a law by human citation — e.g. article='361', law='სამოქალაქო კოდექსი' (or 'civil code', any grammatical case, or doc_id). Superscript articles as '1507¹' or '1507^1'. Optional part (ნაწილი number) extracts that part. as_of_date (DD/MM/YYYY or YYYY-MM-DD) returns the version in force on that date — use it whenever the facts happened in the past. lang='en' returns matsne's unofficial English translation (+ PDF link) when one exists. Returns text + stable URL to cite.")
+def matsne_get_article(article: str, law: str = "", doc_id: int = 0, part: int | None = None,
+                       as_of_date: str = "", publication: int | None = None,
+                       lang: str = "ka") -> dict:
+    return matsne.get_article(article, law=law, doc_id=doc_id, part=part,
+                              publication=publication, as_of_date=as_of_date, lang=lang)
+
+
+@app.tool(description="List all consolidated versions (რედაქციები) of a legislative document (publication index + date, 0 = original) and the amending acts behind each version (number, adoption/publication dates, link). Version dates are adoption dates of the amending act, not entry into force.")
+def matsne_list_versions(doc_id: int) -> dict:
+    return matsne.list_versions(doc_id)
+
+
+@app.tool(description="Diff two versions of a legislative document article by article: which articles were added, removed, or modified, with a unified diff of each change. to_publication omitted = current version; article limits the diff to one article.")
+def matsne_compare_versions(doc_id: int, from_publication: int, to_publication: int | None = None,
+                            article: str = "") -> dict:
+    return matsne.compare_versions(doc_id, from_publication, to_publication, article)
+
+
+@app.tool(description="'Is this still good law?' for a legislative act: in force or expired (with expiry date), latest version, the most recent amending acts, and how many documents cite it. Check this before relying on any act.")
+def matsne_check_status(doc_id: int) -> dict:
+    return matsne.check_status(doc_id)
 
 
 @app.tool(description="Get legislative document structure tree (hierarchical parts with Title and Anchor). Complex codes return deep nested trees.")
@@ -263,6 +317,102 @@ def echr_search(
 @app.tool(description="Get the full text of an ECHR decision by its HUDOC itemid (from echr_search results). NOTE: HUDOC rate-limits — call sequentially and retry once if empty/error.")
 def echr_get_case(itemid: str) -> dict:
     return echr.get_case(itemid)
+
+
+# ── Parliament (info.parliament.ge) ──────────────────────────
+
+@app.tool(description="Search bills in the Parliament of Georgia (კანონპროექტები), newest first — laws being drafted that may soon change the legislation. query matches bill/package names (Georgian, e.g. 'საგადასახადო კოდექს'); bill_type_id: 1=law draft, 11=organic law (codes that are organic laws, e.g. the Labour Code, are amended by type 11), 12=constitutional law, 2=parliament resolution. name_match=false means the hit came from another bill in the same package. Each result shows its current stage (I/II/III hearing, კანონი = adopted).")
+def parliament_search_bills(query: str = "", bill_type_id: int | None = None,
+                            page: int = 1, limit: int = 20) -> dict:
+    return parliament.search_bills(query, bill_type_id=bill_type_id, page=page, limit=limit)
+
+
+@app.tool(description="Full legislative history of one bill (id from parliament_search_bills): every stage (initiated version, I/II/III hearing, resolutions, adopted law) with dates, vote counts, committees, and downloadable files (draft text, explanatory note, current wording of the amended articles, committee conclusions).")
+def parliament_get_bill(bill_id: int) -> dict:
+    return parliament.get_bill(bill_id)
+
+
+# ── Cross-source research ────────────────────────────────────
+
+@app.tool(description="Anti-hallucination check: does the quoted text really appear in the cited source? source='matsne' (+ law or doc_id, optional article/part/as_of_date), 'ecd' (+ decision_document_id, instance_id), 'supreme' (+ case_id, palata), 'constitutional' (+ legal_id), 'echr' (+ itemid). Verdict: exact / close (same passage, wording differs — use matched_text) / partial / not_found (do not attribute). Run it on every quote before putting it in an answer.")
+def verify_citation(quote: str, source: str, law: str = "", doc_id: int = 0,
+                    article: str = "", part: int | None = None, as_of_date: str = "",
+                    decision_document_id: int = 0, instance_id: int = 0,
+                    case_id: int = 0, palata: int = 1, legal_id: int = 0,
+                    itemid: str = "") -> dict:
+    return research.verify_citation(
+        quote, source, law=law, doc_id=doc_id, article=article, part=part,
+        as_of_date=as_of_date, decision_document_id=decision_document_id,
+        instance_id=instance_id, case_id=case_id, palata=palata,
+        legal_id=legal_id, itemid=itemid,
+    )
+
+
+@app.tool(description="One-call research of a law article: its text (optionally as_of_date) plus the court practice citing it — Constitutional Court, Supreme Court (chamber chosen by the law) and common courts — ordered by authority_level, with hit counts. Search uses the Georgian citation form (e.g. 'სამოქალაქო კოდექსის 361-ე მუხლ'). Read the decisions before relying on them.")
+def research_article(article: str, law: str = "", doc_id: int = 0,
+                     as_of_date: str = "", max_results: int = 5) -> dict:
+    return research.research_article(article, law=law, doc_id=doc_id,
+                                     as_of_date=as_of_date, max_results=max_results)
+
+
+# ── Prompts (legal workflows) ────────────────────────────────
+
+_RULES = (
+    "Rules: (1) Every legal statement needs a source with its URL. "
+    "(2) Apply the law as in force when the facts happened — matsne_get_article with as_of_date; "
+    "mention when the current text differs (matsne_compare_versions). "
+    "(3) Confirm each act is in force (matsne_check_status). "
+    "(4) Weigh practice by authority_level: 7 ECHR > 6 Constitutional Court > 5 Grand Chamber "
+    "> 4 Supreme Court > 3 appeals > 2 first instance. "
+    "(5) Run verify_citation on every quote before using it; never quote from memory. "
+    "(6) If a source is unavailable, say so instead of guessing. "
+    "Answer in the user's language (Georgian by default)."
+)
+
+
+@app.prompt(description="Legal memorandum: question → applicable law (correct version) → court practice → analysis → conclusion, with verified citations.")
+def legal_memo(question: str, facts: str = "", facts_date: str = "") -> str:
+    return (
+        "Prepare a legal memorandum (იურიდიული მემორანდუმი) under Georgian law.\n\n"
+        f"Question: {question}\n"
+        f"Facts: {facts or '(none given — state the assumptions you make)'}\n"
+        f"Date of the facts: {facts_date or '(not given — use the current law and say so)'}\n\n"
+        "Steps: 1) identify the governing norms (matsne_suggest / matsne_search); "
+        "2) read each article with matsne_get_article (as_of_date = date of the facts); "
+        "3) research_article for each key article, then read the strongest decisions "
+        "(constitutional_get_act, supreme_get_case, court_get_decision) and check "
+        "supreme_grand_chamber; 4) check parliament_search_bills for pending changes; "
+        "5) verify every quote with verify_citation.\n\n"
+        "Structure: Question · Short answer · Applicable law · Court practice (by authority) · "
+        "Analysis · Risks and open points · Sources (URL for each).\n\n" + _RULES
+    )
+
+
+@app.prompt(description="Case analysis in IRAC form (Issue, Rule, Application, Conclusion) for a fact pattern under Georgian law.")
+def case_analysis(facts: str, facts_date: str = "", side: str = "") -> str:
+    return (
+        f"Analyse this case under Georgian law using IRAC.\n\nFacts: {facts}\n"
+        f"Date of the facts: {facts_date or '(not given)'}\n"
+        f"Perspective: {side or 'neutral'}\n\n"
+        "For each legal issue: Issue → Rule (matsne_get_article, correct version) → "
+        "Application (compare with research_article practice; distinguish unfavourable decisions) → "
+        "Conclusion with likelihood. Finish with procedural notes: competent court, "
+        "deadlines and evidence — cite the procedural code articles, do not state deadlines from memory.\n\n"
+        + _RULES
+    )
+
+
+@app.prompt(description="What changed in a law between two dates, and what is pending in Parliament.")
+def law_change_review(law: str, from_date: str, to_date: str = "") -> str:
+    return (
+        f"Review changes to '{law}' between {from_date} and {to_date or 'today'}.\n\n"
+        "Steps: 1) matsne_check_status and matsne_list_versions; 2) pick the versions in force on both "
+        "dates (matsne_get_article / version dates) and run matsne_compare_versions; 3) list the "
+        "amending acts in that period with their dates; 4) parliament_search_bills for pending bills "
+        "on this law and their current stage.\n\n"
+        "Output: table of changed articles (old → new, one-line summary, amending act), "
+        "practical impact, pending bills.\n\n" + _RULES
+    )
 
 
 # ── Resources ────────────────────────────────────────────────
