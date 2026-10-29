@@ -16,7 +16,9 @@ Sources:
                        disputes, Bar ethics commission
 Plus procedural-deadline and court state-fee calculation from live norms
 (deadlines.py, state_fee.py) and
-PDF text extraction with legacy Georgian font repair (pdf_text.py).
+PDF text extraction with legacy Georgian font repair (pdf_text.py), and the
+public registries (registries_api.py): companies, real estate, liens, movable
+pledges, lawyers, notaries, procurement supplier lists.
 Plus cross-source research (research.py): citation verification and
 article-level practice search, and MCP prompts for common legal workflows.
 
@@ -39,6 +41,9 @@ from agencies_api import (TaxDisputeCouncilAPI, RevenueServiceDisputeAPI, TaxGui
                           BarEthicsAPI)
 from deadlines import DeadlineCalculator
 from state_fee import FeeCalculator
+from registries_api import (CompanyRegistryAPI, PropertyRegistryAPI, LienRegistryAPI,
+                            MovablePledgeAPI, LawyerRegistryAPI, NotaryAPI, ProcurementListsAPI,
+                            CompanyInfoAPI, GeostatRegisterAPI)
 from pdf_text import extract_pdf_text, search_pdf
 
 matsne = MatsneAPI()
@@ -58,6 +63,15 @@ procurement = ProcurementDisputeAPI()
 bar_ethics = BarEthicsAPI()
 deadline_calc = DeadlineCalculator()
 fee_calc = FeeCalculator(deadlines=deadline_calc)
+company_registry = CompanyRegistryAPI()
+property_registry = PropertyRegistryAPI()
+lien_registry = LienRegistryAPI()
+pledge_registry = MovablePledgeAPI()
+lawyer_registry = LawyerRegistryAPI()
+notaries = NotaryAPI()
+procurement_lists = ProcurementListsAPI()
+companyinfo = CompanyInfoAPI()
+geostat = GeostatRegisterAPI()
 
 app = FastMCP(
     "matsne-ge",
@@ -87,7 +101,22 @@ app = FastMCP(
         "(Grand Chamber, Supreme Court analytics, parliament files, agency "
         "decisions) are read with pdf_get_text / pdf_search. Administrative-body "
         "decisions (tax_*, rs_*, competition_*, ombudsman_*, procurement_*, "
-        "bar_ethics_*) carry authority_level 1: below every court."
+        "bar_ethics_*) carry authority_level 1: below every court. Public "
+        "registries (registry_* — companies, real estate, liens, movable pledges, "
+        "lawyers, notaries, procurement black/white lists), companyinfo_* "
+        "(Transparency International's company/people graph) and geostat_* "
+        "(statistical business register) are reference data: relay their "
+        "personal-data warning, mention only what the legal question needs, "
+        "and say that only an official extract has legal force. Search a person "
+        "by name only for a concrete legal purpose (due diligence, dispute, "
+        "enforcement, conflict check); namesakes are common — confirm identity "
+        "by personal number before attributing anything, and stay within "
+        "business roles. For complex company / counterparty checks combine "
+        "companyinfo_company (people, history, sanctions, blacklists), "
+        "geostat_company, registry_liens, registry_movable_pledges and "
+        "registry_property_parcel. Lower-court decisions after April 2020 are not "
+        "published anywhere (ecd.court.ge stops at 2020-04) — say so and use the "
+        "Supreme Court search."
     ),
 )
 
@@ -200,7 +229,7 @@ def matsne_today_documents() -> list[dict]:
 
 # ── Common courts (ecd.court.ge) ─────────────────────────────
 
-@app.tool(description="Search common-court decisions (ecd.court.ge). COVERAGE: only decisions dated 2018-01 to 2020-04. Filters: case number, decision date range (YYYY-MM-DD), instance (1=first, 2=appeals, 3=supreme), court code, case category, litigation type (dispute category/article), decision type, full-text terms. texts: one word = substring match (stems OK, e.g. 'ალიმენტ'); several words = exact phrase of whole adjacent words (write '361-ე მუხლის', not '361-ე მუხლ'); several list items = AND. End a word with * to OR-search all its case forms (e.g. 'სამოქალაქო კოდექსის 361-ე მუხლ*'). take ≤ 50. For one article prefer court_search_article. Results carry authority_level.")
+@app.tool(description="Search common-court decisions (ecd.court.ge). COVERAGE: only decisions dated 2018-01 to 2020-04 — lower-court decisions after April 2020 are not published anywhere (Organic Law on Common Courts art. 13(3¹) not implemented); use supreme_search for later practice. Filters: case number, decision date range (YYYY-MM-DD), instance (1=first, 2=appeals, 3=supreme), court code, case category, litigation type (dispute category/article), decision type, full-text terms. texts: one word = substring match (stems OK, e.g. 'ალიმენტ'); several words = exact phrase of whole adjacent words (write '361-ე მუხლის', not '361-ე მუხლ'); several list items = AND. End a word with * to OR-search all its case forms (e.g. 'სამოქალაქო კოდექსის 361-ე მუხლ*'). take ≤ 50. For one article prefer court_search_article. Results carry authority_level.")
 def court_search_decisions(
     case_no: str = "",
     date_from: str = "",
@@ -454,6 +483,126 @@ def fee_calculate(fee_type: str, claim_value: float | None = None, party_type: s
                                   settlement, administrative)
 
 
+# ── Public registries (registries_api.py) ────────────────────
+# Anonymous endpoints only; CAPTCHA-protected pages (company extract, debtors registry)
+# are not wrapped. Every result carries a personal-data warning.
+
+_REG = (" Input: identification code (9-digit company / 11-digit personal number), cadastral "
+        "code or company name. Reference data only: relay the personal-data `warning`; an official "
+        "extract prevails.")
+
+
+@app.tool(description="Company registry (NAPR entrepreneurs & non-commercial legal entities): find a legal entity or individual entrepreneur by identification code or name → id code, name, legal form, status (active / liquidated / code cancelled). Directors, partners and the extract are CAPTCHA-protected on the site and NOT available — tell the user to order an extract." + _REG)
+def registry_company_search(id_code: str = "", name: str = "", page: int = 1) -> dict:
+    return company_registry.search_companies(id_code=id_code, name=name, page=page)
+
+
+@app.tool(description="Company registry: entities in which an organization (by name) or a person/entity (by identification code) is registered as founder or partner — for corporate links and asset tracing." + _REG)
+def registry_company_participations(org_name: str = "", id_code: str = "", page: int = 1) -> dict:
+    return company_registry.find_participations(org_name=org_name, id_code=id_code, page=page)
+
+
+@app.tool(description="Company registry applications filed in a period (default last 7 days) or one by registration number (e.g. B26439530). app_type: new_registration, change_of_data, reorganization, deregistration, extract, liquidation_start, liquidation_end, forced_liquidation_start, insolvency_start, insolvency_end, reorganization_start, reorganization_end, share_pledge, share_pledge_change, share_pledge_end, dissolution, redomiciliation_start. Useful to monitor insolvency / liquidation filings." + _REG)
+def registry_company_applications(date_from: str = "", date_to: str = "", app_type: str = "",
+                                  reg_number: str = "", page: int = 1) -> dict:
+    return company_registry.search_applications(date_from, date_to, app_type, reg_number, page)
+
+
+@app.tool(description="Real-estate registry parcel card by cadastral code (e.g. 01.18.04.009.016): area, parcel type, address, ownership type, registered owners and every registry document (extracts, cadastral plans) with a direct PDF link — read the newest extract with pdf_get_text for rights and encumbrances." + _REG)
+def registry_property_parcel(cadastral_code: str) -> dict:
+    return property_registry.parcel(cadastral_code)
+
+
+@app.tool(description="Real-estate registry application book: transactions filed (sale, mortgage, lease, seizure...) with status and dates, by cadastral code, application number or applicant identification code (ID-code searches need a period; default last 90 days)." + _REG)
+def registry_property_applications(cadastral_code: str = "", reg_number: str = "", id_code: str = "",
+                                   date_from: str = "", date_to: str = "", page: int = 1) -> dict:
+    return property_registry.applications(cadastral_code, reg_number, id_code, date_from, date_to, page)
+
+
+@app.tool(description="Seizure / prohibition / tax-lien registry (NAPR): liens on a person or entity (identification code) or on a property (cadastral code) → kind, object, active flag, basis (court ruling, enforcement or tax order with number and date), registration number and status." + _REG)
+def registry_liens(id_code: str = "", cadastral_code: str = "", page: int = 1) -> dict:
+    return lien_registry.search(id_code=id_code, cadastral_code=cadastral_code, page=page)
+
+
+@app.tool(description="Movable-property / intangible-asset pledge and leasing registry (NAPR): records where the identification code is owner or creditor → subject, creditor, owner, status, app_id for details." + _REG)
+def registry_movable_pledges(id_code: str, page: int = 1) -> dict:
+    return pledge_registry.search(id_code, page)
+
+
+@app.tool(description="One movable pledge/leasing record by app_id (from registry_movable_pledges): registration date and term, creditor, owner, pledged items, documents and scan links." + _REG)
+def registry_movable_pledge_get(app_id: int, max_chars: int = 6000) -> dict:
+    return pledge_registry.get_pledge(app_id, max_chars)
+
+
+@app.tool(description="Georgian Bar Association unified members list: is a person a registered lawyer? Search by name or list number → list number and specializations. Suspension/disbarment is not shown — check bar_ethics_search.")
+def registry_lawyer_search(query: str, limit: int = 20) -> dict:
+    return lawyer_registry.search(query, limit)
+
+
+@app.tool(description="Notary bureaus directory (my.gov.ge): notaries in a region — the API has three: თბილისი (default), აჭარა, რაიონები (rest of Georgia) — with optional city/district and name filter → name, district, phone, email.")
+def registry_notary_search(region: str = "თბილისი", district: str = "", name: str = "", page: int = 1) -> dict:
+    return notaries.search(region, district, name, page)
+
+
+@app.tool(description="Public procurement supplier lists (procurement.gov.ge), newest first: list_type black (banned from tenders), white (reliable), warned. One page → title, identification code, date, entry URL.")
+def registry_procurement_list(list_type: str = "black", page: int = 1) -> dict:
+    return procurement_lists.list_entries(list_type, page)
+
+
+@app.tool(description="Search a procurement supplier list (black / white / warned) for an identification code or company name, scanning up to max_pages pages (≤60). Not found within the scanned pages ≠ not listed.")
+def registry_procurement_search(query: str, list_type: str = "black", max_pages: int = 15) -> dict:
+    return procurement_lists.search(query, list_type, max_pages)
+
+
+@app.tool(description="Text of one procurement list entry (URL from registry_procurement_list/search): procuring entity, tender number, CPV, supplier, legal basis.")
+def registry_procurement_get(url: str) -> dict:
+    return procurement_lists.get_entry(url)
+
+
+# ── companyinfo.ge + Geostat business register (registries_api.py) ──
+
+@app.tool(description="companyinfo.ge (Transparency International Georgia, monthly mirror of the NAPR business registry): find companies by name (substring) or identification code → company_id, id code, name, address, registration date, flags of linked datasets (sanctions, procurement blacklist/warning list, asset declarations of linked officials, financial reports, mining licences, construction permits). Individual entrepreneurs are excluded (site robots.txt)." + _REG)
+def companyinfo_company_search(name: str = "", id_code: str = "", status: str = "", page: int = 1) -> dict:
+    return companyinfo.search_companies(name=name, id_code=id_code, status=status, page=page)
+
+
+@app.tool(description="companyinfo.ge full company card by identification code (or company_id): status, form, address, email, CURRENT directors/partners with roles and shares, role history newest-first (history_limit), shareholders, companies it owns, reorganisations, business-registry size/activity, sanctions, procurement black/warning list, linked officials and their asset declarations, mining licences, construction permits, financial-report years. Best single call for counterparty due diligence; personal numbers are returned in full — use them to cross-check people in registry_liens, registry_movable_pledges, companyinfo_people_search." + _REG)
+def companyinfo_company(id_code: str = "", company_id: int = 0, history_limit: int = 40) -> dict:
+    return companyinfo.company(id_code=id_code, company_id=company_id, history_limit=history_limit)
+
+
+@app.tool(description="companyinfo.ge people search — persons registered as directors/partners/founders, by FULL name (first + last, substring) or by personal number. Use only for a concrete legal purpose (due diligence, dispute, enforcement, conflict check). Namesakes are common: the result lists them and an identity_warning — confirm the right person (personal number, roles) before attributing anything, then cross-check that personal number in the other registries (registry_liens, registry_movable_pledges, registry_property_applications, registry_company_participations)." + _REG)
+def companyinfo_people_search(name: str = "", id_number: str = "", page: int = 1) -> dict:
+    return companyinfo.search_people(name=name, id_number=id_number, page=page)
+
+
+@app.tool(description="companyinfo.ge person card by person_id (from companyinfo_people_search or companyinfo_company): business roles only — companies (current and former), role, date, ownership, sanctions, asset declarations. Home address is withheld." + _REG)
+def companyinfo_person(person_id: int) -> dict:
+    return companyinfo.person(person_id)
+
+
+@app.tool(description="Geostat statistical business register (br.geostat.ge, ~1.15M entities): search/filter by name, identification code, NACE rev.2 activity code without the section letter ('64.19', '64.19.1' — find codes with geostat_activity_codes), region code ('11' = Tbilisi — geostat_regions), legal_form_id, size (small/medium/large/unknown), active. Returns activity, size, legal and actual address, director, registration date. Good for market / competitor lists. Cite 'საქსტატი'." + _REG)
+def geostat_search(name: str = "", id_code: str = "", activity_code: str = "", region_code: str = "",
+                   legal_form_id: int = 0, size: str = "", active: bool | None = None,
+                   page: int = 1, limit: int = 20) -> dict:
+    return geostat.search(name, id_code, activity_code, region_code, legal_form_id, size, active, page, limit)
+
+
+@app.tool(description="Geostat business register entity by identification code: activity, size, ownership, legal + actual address, director, dates, director history (representatives), dated name and address history. Statistical register — NAPR is the legal one. Cite 'საქსტატი'." + _REG)
+def geostat_company(id_code: str) -> dict:
+    return geostat.company(id_code)
+
+
+@app.tool(description="Find NACE rev.2 activity codes in the Geostat dictionary by Georgian keyword or code prefix (e.g. 'ბანკ', '64.19') — for geostat_search filters.")
+def geostat_activity_codes(query: str, limit: int = 20) -> dict:
+    return geostat.activity_codes(query, limit)
+
+
+@app.tool(description="Geostat region codes for geostat_search (e.g. '11' = Tbilisi, '15' = Adjara).")
+def geostat_regions() -> dict:
+    return geostat.regions()
+
+
 # ── PDF documents (pdf_text.py) ──────────────────────────────
 
 @app.tool(description="Extract text from a PDF — supremecourt.ge (Grand Chamber, norms compilation, analytics, decision collections), info.parliament.ge bill files, ecd.court.ge, matsne English PDFs, agency decisions. Converts legacy Georgian fonts (AcadNusx/LitNusx…) to Unicode and reports scanned/image-only pages (no OCR). Large PDFs: page through with offset_chars / max_chars.")
@@ -583,6 +732,9 @@ _RULES = (
     "(7) Never state a procedural deadline from memory; use the deadline_* tools and warn "
     "the user that the start date and special rules must be checked by a lawyer. "
     "(8) The same for court state fees: fee_calculate / fee_get_rule, never from memory. "
+    "(9) Registry data (registry_*, companyinfo_*, geostat_*) is reference only — relay the "
+    "personal-data warning; the official extract prevails; search people by name only for the "
+    "legal purpose at hand and confirm identity by personal number (namesakes). "
     "Answer in the user's language (Georgian by default)."
 )
 
@@ -619,7 +771,9 @@ def case_analysis(facts: str, facts_date: str = "", side: str = "") -> str:
         "Application (compare with research_article practice; distinguish unfavourable decisions) → "
         "Conclusion with likelihood. Finish with procedural notes: competent court, "
         "deadlines (deadline_calculate / deadline_get_rule — never from memory; relay the "
-        "warning), state fee (fee_calculate) and evidence.\n\n"
+        "warning), state fee (fee_calculate) and evidence — for a company, property or "
+        "debt-recovery question check the registries (registry_company_search, "
+        "registry_property_parcel, registry_liens, registry_movable_pledges).\n\n"
         + _RULES
     )
 

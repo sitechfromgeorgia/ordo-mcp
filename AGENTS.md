@@ -20,6 +20,9 @@ agents — keep tool descriptions self-explanatory and outputs citeable):
   + guidance (InfoHub API), competition agency, Public Defender, procurement disputes, Bar ethics
 - **`deadlines.py`** — `DeadlineCalculator`: procedural deadlines computed from the LIVE norms
 - **`state_fee.py`** — `FeeCalculator`: court state fees (სახელმწიფო ბაჟი) from the LIVE CPC art. 39
+- **`registries_api.py`** — public registries (anonymous endpoints only): companies, real estate,
+  liens, movable pledges, lawyers, notaries, procurement supplier lists, plus companyinfo.ge
+  (Transparency International's company/people graph) and the Geostat business register
 - **`pdf_text.py`** — PDF text extraction/search with legacy Georgian font repair
 
 **Files:** the modules above, `SKILL.md` (reference docs),
@@ -48,6 +51,7 @@ python supreme_practice_api.py              # live test: Supreme Court analytics
 python agencies_api.py                      # live test: all administrative bodies
 python deadlines.py                         # live test: deadline calculations
 python state_fee.py                         # live test: state-fee calculations
+python registries_api.py                    # live test: all public registries
 uv run python pdf_text.py                   # live test: PDF extraction (needs pypdfium2)
 uv run mcp_server.py                        # start MCP server (stdio transport)
 uv run python -c "from mcp_server import *" # verify imports
@@ -157,6 +161,35 @@ run `$env:PYTHONIOENCODING="utf-8"; python matsne_api.py`.
 - Reuses `DeadlineCalculator._article` (shared page cache); exemptions (CPC 46–48, APC 9) are
   returned as `related_norms`, never applied automatically. Warning on every result
 
+### Public registries (`registries_api.py`)
+
+- `_RegistryBase(_AgencyBase)` + `_post_json`; every result has `warning` (personal data, reference
+  only, official extract prevails). Inputs are validated: `_ident()` = 9-digit company code or
+  11-digit personal number, `_cadastral()` = dotted cadastral code. No person-name search by design
+- `CompanyRegistryAPI` — enreg.reestri.gov.ge `/_dea/main.php` (form POST, PHP session: GET
+  `?m=new_index` first; pages = re-POST `p=N` after the filter): `find_legal_persons`,
+  `find_participations2`, `search_app` (`s_app_tr_type` ids in `APP_TYPES`)
+- `PropertyRegistryAPI` — maps.gov.ge `/map/portal/search` → `/lr/bo/mg/getinfo.alpha?lbl=…`
+  (parcel card: owners + document list with `bs.napr.gov.ge/GetBlob` PDF extracts, readable by
+  pdf_text); naprweb.reestri.gov.ge `/api/search` JSON (dates `DD-MM-YYYY`)
+- `LienRegistryAPI` — naprlmr.reestri.gov.ge `/api/searchlien` (`flObjectType: "3"` + `flObject` =
+  cadastral code; `flIdnumber` = ID code); `MovablePledgeAPI` — mmr.reestri.gov.ge (form POST +
+  `c=mortgage&m=show_lien_details&app_id=`)
+- `LawyerRegistryAPI` — gba.ge `ajax/employers/ka-<hash>.json` (hash read from the members-list
+  page, known URL as fallback, cached per instance); `NotaryAPI` — api.my.gov.ge `NotaryBureaus/*`
+  (headers `Content-Language: ka-ge`, `DeviceTypeId: 1`; regions: თბილისი / აჭარა / რაიონები);
+  `ProcurementListsAPI` — procurement.gov.ge `/ka/News/List?category=4|3|5` (black/white/warned)
+- `CompanyInfoAPI` — api.companyinfo.ge `/api/*` JSON (TI Georgia, monthly NAPR mirror +
+  sanctions, blacklists, declarations, reportal, permits): `corporations/search`,
+  `getcorporation/{idCode}` → `corporations/{id}` + `company-info/{id}` +
+  `corporation-person-info/{id}`, `people/search`, `people/{id}`. The ONLY person-by-name search:
+  full name required, namesakes flagged, home address dropped; personal numbers returned in full
+  (public data) so the agent can confirm identity and cross-check other registries
+- `GeostatRegisterAPI` — br-api.geostat.ge `/api/documents` (filters `identificationNumber`,
+  `organizationName`, `activityCode` without section letter, `legalAddressRegion`, `legalForm`,
+  `size`, `isActive`), `/representatives`, `/full-name-web`, `/address-web`, `/activities`,
+  `/locations/regions`; license: cite საქსტატი
+
 ### PDFs (`pdf_text.py`)
 
 - pypdfium2 (best Georgian layout, fastest); `\ufffe` soft hyphens stripped; legacy fonts
@@ -167,10 +200,11 @@ run `$env:PYTHONIOENCODING="utf-8"; python matsne_api.py`.
 ### MCP Server (`mcp_server.py`)
 
 - Imports every module above — wrappers untouched, MCP is a pure transport layer
-- 57 tools: 14 `matsne_*`, 5 `court_*`, 4 `supreme_*`, 2 `constitutional_*`, 2 `echr_*`,
+- 70 tools: 14 `matsne_*`, 5 `court_*`, 4 `supreme_*`, 2 `constitutional_*`, 2 `echr_*`,
   2 `parliament_*`, `verify_citation`, `research_article`, 5 `deadline_*`, 3 `fee_*`, 2 `pdf_*`,
   4 `supreme_practice_*`, 13 administrative-body tools (`tax_dispute_*`, `rs_dispute_*`,
-  `tax_guidance_*`, `competition_search`, `ombudsman_*`, `procurement_dispute_*`, `bar_ethics_search`)
+  `tax_guidance_*`, `competition_search`, `ombudsman_*`, `procurement_dispute_*`, `bar_ethics_search`),
+  13 `registry_*`, 4 `companyinfo_*`, 4 `geostat_*` (78 total)
 - 3 prompts: `legal_memo`, `case_analysis` (IRAC), `law_change_review` — they share `_RULES`
   (sources with URLs, as_of_date, check_status, authority order, verify every quote)
 - 6 resources: `matsne://document/{id}`, `matsne://today`, `court://decision/{id}/{instance}`,
@@ -210,7 +244,10 @@ run `$env:PYTHONIOENCODING="utf-8"; python matsne_api.py`.
 ### Court practice gotchas
 
 - **ecd.court.ge only holds decisions dated 2018-01 … 2020-04** (~44k) — tell users when practice
-  outside that window is needed (use the Supreme Court search instead)
+  outside that window is needed (use the Supreme Court search instead). No other public source of
+  post-2020 first-instance / appeal decisions exists: publication stopped when the Constitutional
+  Court's 2019 data-protection ruling took effect (1 May 2020); Organic Law on Common Courts
+  art. 13(3¹) (in force 2024) requires depersonalized publication but is not implemented
 - **ecd `Texts` semantics:** one word = substring; several words = exact phrase of whole adjacent
   words; list items = AND; no wildcards/OR; a hyphen splits words; take > 50 → HTTP 500.
   `search_decisions` cleans texts and expands `word*` into case forms (`expand_forms`) merged by
@@ -223,6 +260,21 @@ run `$env:PYTHONIOENCODING="utf-8"; python matsne_api.py`.
 - **Grand Chamber decisions are NOT in `/ka/cases` search** — they live on static `/decisions-grand-chamber/...` pages as PDFs; `grand_chamber()` scrapes their titles + PDF URLs
 - **Grand Chamber 'norms' category** (`didi-palatis-gadatsyvetilebebshi-gamoyenebul-normata-ganmartebebi`) is a single PDF of compiled binding norm interpretations — the highest authority below the Constitution/law
 - **`court_verify_act` requires BOTH barcode and case number** — one alone returns an error page
+
+### Registry gotchas
+
+- **CAPTCHA-protected, deliberately not wrapped:** enreg company detail / extract (`show_legal_person`,
+  `enteredCaptcha`), debtors registry (reCAPTCHA v3), naprweb `/api/app/{id}`. Do not add them
+- naprweb ID-code (`person`) searches without a date range time out — default 90 days
+- `maps.napr.gov.ge` fails TLS (hostname mismatch) — use `maps.gov.ge`
+- **companyinfo.ge robots.txt** disallows individual-entrepreneur pages (legalForm 1 — excluded),
+  three listed corporations and `/uploads/` on the API host (registry PDFs — links not returned).
+  The www site (SSR Angular) hangs; use the API at ~1 req/s. Junk duplicate rows exist
+  (`idCode` with a leading space) — deduped. Role labels can be dirty
+- **Geostat API** allows ~50 requests/minute (`X-RateLimit-*`) — 1.2 s spacing; it returns
+  directors' personal numbers and phones (public; returned as `head_id_number`, `phone`)
+- enreg application rows show only the applicant, not the subject company (that is on the
+  CAPTCHA page); procurement list titles of individual entrepreneurs include personal numbers
 
 ### PDF / analytics / agencies gotchas
 

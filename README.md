@@ -131,6 +131,22 @@ Please walk me through each step and check as we go.
 | `pdf_get_text` / `pdf_search` | PDF-ის ტექსტი და ძებნა (ძველი AcadNusx/LitNusx ფონტების ავტომატური გასწორებით) |
 | `court_search_article` | საერთო სასამართლოების გადაწყვეტილებები კონკრეტულ მუხლზე (ecd: 2018–2020) |
 
+### 🗂️ საჯარო რეესტრები (ახალი)
+
+| Tool | რას აკეთებს |
+|---|---|
+| `registry_company_search` / `_participations` / `_applications` | მეწარმეთა რეესტრი: კომპანია ს/კ-ით ან სახელით (სტატუსი), დამფუძნებელი/პარტნიორი, განცხადებები (ლიკვიდაცია, გადახდისუუნარობა, წილის გირავნობა) |
+| `registry_property_parcel` / `registry_property_applications` | უძრავი ქონება საკადასტრო კოდით: მესაკუთრე, ფართი, ამონაწერის PDF; განცხადებების ჟურნალი |
+| `registry_liens` | ყადაღა, აკრძალვა, საგადასახადო გირავნობა (საფუძვლით — მაგ. სასამართლოს განჩინება) |
+| `registry_movable_pledges` / `_get` | მოძრავი ნივთების/არამატერიალური ქონების გირავნობა და ლიზინგი |
+| `registry_lawyer_search` / `registry_notary_search` | ადვოკატთა ერთიანი სია, სანოტარო ბიუროები |
+| `registry_procurement_list` / `_search` / `_get` | შესყიდვების შავი, თეთრი და გაფრთხილებულთა სიები |
+| `companyinfo_company` / `_company_search` | companyinfo.ge (საერთაშორისო გამჭვირვალობა): კომპანიის სრული ბარათი — დირექტორები/პარტნიორები და მათი ისტორია, წილები, სანქციები, შავი სია, დეკლარაციები, ფინანსური ანგარიშგება |
+| `companyinfo_people_search` / `companyinfo_person` | პირის ბიზნეს-როლები სახელით ან პირადი ნომრით (სეხნიების გაფრთხილებით; პირადი ნომრით გადამოწმება სხვა რეესტრებში) |
+| `geostat_search` / `geostat_company` / `_activity_codes` / `_regions` | საქსტატის ბიზნეს რეგისტრი: საქმიანობა, ზომა, მისამართები, ხელმძღვანელი, ისტორია; ფილტრები საქმიანობით/რეგიონით |
+
+მხოლოდ ღია (CAPTCHA-ს გარეშე) წყაროები; ძებნა ს/კ-ით, პირადი ნომრით, საკადასტრო კოდით, ხოლო პირის — სახელითაც (companyinfo, მხოლოდ ბიზნეს-როლები, სეხნიების გაფრთხილებით); ყველა პასუხს პერსონალურ მონაცემებზე გაფრთხილება ახლავს.
+
 ### 🏢 ადმინისტრაციული ორგანოები (ახალი)
 
 | Tool | რას აკეთებს |
@@ -300,6 +316,22 @@ so agents weigh precedent correctly.
 | `fee_calculate` / `fee_get_rule` / `fee_list_types` | Court state fee from the live Civil Procedure Code art. 39 (percent, minimum, ceilings for individuals/legal entities, magistrate, settlement) — with a warning |
 | `pdf_get_text` / `pdf_search` | PDF text and search (legacy AcadNusx/LitNusx fonts repaired automatically) |
 | `court_search_article` | Common-court decisions citing one article (ecd: 2018–2020) |
+
+### 🗂️ Public registries (new)
+
+| Tool | Purpose |
+|---|---|
+| `registry_company_search` / `_participations` / `_applications` | Company registry: entity by ID code or name (status), founders/partners, filings (liquidation, insolvency, share pledge) |
+| `registry_property_parcel` / `registry_property_applications` | Real estate by cadastral code: owners, area, extract PDFs; application book |
+| `registry_liens` | Seizures, prohibitions, tax liens (with the basis act, e.g. a court ruling) |
+| `registry_movable_pledges` / `_get` | Pledges and leasing of movables / intangible assets |
+| `registry_lawyer_search` / `registry_notary_search` | Bar members list, notary bureaus |
+| `registry_procurement_list` / `_search` / `_get` | Procurement black, white and warned supplier lists |
+| `companyinfo_company` / `_company_search` | companyinfo.ge (Transparency International): full company card — directors/partners and their history, shares, sanctions, blacklists, declarations, financial reports |
+| `companyinfo_people_search` / `companyinfo_person` | A person's business roles by name or personal number (namesakes flagged; personal number used to cross-check other registries) |
+| `geostat_search` / `geostat_company` / `_activity_codes` / `_regions` | Geostat business register: activity, size, addresses, head, history; filters by activity/region |
+
+Open (no-CAPTCHA) sources only; search by ID code, personal number, cadastral code — and people by name too (companyinfo, business roles only, namesakes flagged); every result carries a personal-data warning.
 
 ### 🏢 Administrative bodies (new)
 

@@ -596,6 +596,30 @@ only. `settlement`: `at_main_hearing` (half, 49(1)) / `before_main_hearing` (wai
 Known limits: claim value is the user's input (CPC 40–41), exemptions are not applied
 automatically, magistrate + ceiling order is ambiguous (higher amount → `conservative`).
 
+# Public Registries (`registries_api.py`)
+
+All read-only, anonymous, no CAPTCHA; each result carries `warning` (personal data, reference only).
+
+| Class.method | Endpoint | Input → output |
+|---|---|---|
+| `CompanyRegistryAPI.search_companies` | POST enreg `/_dea/main.php` `c=search&m=find_legal_persons` | id_code / name → id code, name, legal form, status, registry_id |
+| `.find_participations` | `m=find_participations2` (`s_participants_orgname` / `_idnumber`) | entity, participant, role (founder/partner) |
+| `.search_applications` | `m=search_app` (`s_app_from_date` `DD.MM.YYYY`, `s_app_tr_type`) | reg number, date, service, status, parties |
+| `PropertyRegistryAPI.parcel` | POST maps.gov.ge `/map/portal/search` → GET `getinfo.alpha?lbl=` | area, type, address, ownership, owners, documents (PDF) |
+| `.applications` | POST naprweb `/api/search` JSON | transactions, status, applicants, dates |
+| `LienRegistryAPI.search` | POST naprlmr `/api/searchlien` JSON | kind, object, active, basis act, reg number |
+| `MovablePledgeAPI.search` / `.get_pledge` | POST mmr `/_dea/main.php` / `show_lien_details` | subject, creditor, owner / full record + scans |
+| `LawyerRegistryAPI.search` | GET gba.ge `ajax/employers/ka-<hash>.json` | name, list number, specializations |
+| `NotaryAPI.search` | api.my.gov.ge `NotaryBureaus/GetRegions`, `GetNotaryBureaus` | notary, district, phone, email |
+| `ProcurementListsAPI.list_entries` / `.search` / `.get_entry` | procurement.gov.ge `/ka/News/List?category=4,3,5` | black / white / warned suppliers |
+
+| `CompanyInfoAPI.search_companies` / `.company` | api.companyinfo.ge `corporations/search`, `getcorporation/{idCode}`, `corporations/{id}`, `company-info/{id}` | company card: current + historical directors/partners, shares, sanctions, blacklists, declarations, reports |
+| `CompanyInfoAPI.search_people` / `.person` | `people/search?name=|idNumber=`, `people/{id}` | persons (full personal numbers, namesakes flagged) → business roles |
+| `GeostatRegisterAPI.search` / `.company` | br-api.geostat.ge `/documents`, `/representatives`, `/full-name-web`, `/address-web` | activity, size, addresses, director, history; filtered lists |
+| `GeostatRegisterAPI.activity_codes` / `.regions` | `/activities`, `/locations/regions` | filter dictionaries |
+
+Not wrapped (CAPTCHA): company extract/detail, debtors registry, naprweb application detail.
+
 # PDF Text (`pdf_text.py`)
 
 `extract_pdf_text(url_or_bytes, max_pages=None, include_pages=False)` → `text, pages, method
