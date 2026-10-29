@@ -1,4 +1,4 @@
-# AGENTS.md — Georgia Legal Ecosystem MCP
+# AGENTS.md — Ordo (Georgian legal research MCP)
 
 ## What this is
 
@@ -66,7 +66,7 @@ run `$env:PYTHONIOENCODING="utf-8"; python matsne_api.py`.
 ```json
 {
   "mcpServers": {
-    "matsne-ge": {
+    "ordo": {
       "command": "uv",
       "args": ["--directory", "PATH_TO_REPO", "run", "mcp_server.py"]
     }

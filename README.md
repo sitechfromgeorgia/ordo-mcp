@@ -1,8 +1,9 @@
 <p align="center">
-  <h1 align="center">⚖️ Matsne.gov.ge MCP Server</h1>
+  <h1 align="center">⚖️ Ordo</h1>
   <p align="center">
-    <strong>Search, read and analyze Georgia's official legislative database — through AI</strong><br>
-    <em>საქართველოს საკანონმდებლო მაცნე — ნებისმიერი AI ასისტენტიდან</em>
+    <strong><em>Ordo ab chao</em> — order out of legal chaos</strong><br>
+    <em>წესრიგი სამართლის ქაოსიდან: კანონმდებლობა, ყველა სასამართლო, ECHR, რეესტრები — ნებისმიერი AI ასისტენტიდან</em><br>
+    Georgian legal research MCP server: legislation, every court, ECHR, registries, deadlines and fees
   </p>
   <p align="center">
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"></a>
@@ -20,7 +21,7 @@
 > **Non-technical?** Just copy the box below, paste it to Claude or any AI assistant, and it will set up everything for you — download, install, configure, and test.
 
 <pre>
-I want to use the Matsne.gov.ge MCP server from https://github.com/sitechfromgeorgia/matsne-gov-ge-mcp
+I want to use Ordo — the Georgian legal research MCP server — from https://github.com/sitechfromgeorgia/matsne-gov-ge-mcp
 
 Please help me set it up. Here's what I need you to do:
 
@@ -39,7 +40,7 @@ Please help me set it up. Here's what I need you to do:
 ```json
 {
   "mcpServers": {
-    "matsne-ge": {
+    "ordo": {
       "command": "uv",
       "args": ["--directory", "PATH", "run", "mcp_server.py"]
     }
@@ -57,9 +58,9 @@ Please walk me through each step and check as we go.
 
 ### რა არის ეს?
 
-ეს არის **MCP (Model Context Protocol) სერვერი**, რომელიც საშუალებას აძლევს ნებისმიერ AI ასისტენტს (Claude Desktop, VS Code, Cursor, Windsurf) **მოძებნოს, წაიკითხოს და გააანალიზოს** დოკუმენტები [matsne.gov.ge](https://matsne.gov.ge)-დან — საქართველოს საკანონმდებლო მაცნე.
+**Ordo** (ლათ. „წესრიგი“; *Ordo ab chao* — „წესრიგი ქაოსიდან“) არის **MCP (Model Context Protocol) სერვერი**, რომელიც ნებისმიერ AI ასისტენტს (Claude Desktop, VS Code, Cursor, Windsurf) აძლევს საშუალებას, ერთ სამუშაო სივრცეში **მოძებნოს, წაიკითხოს და გააანალიზოს** ქართული სამართალი: [matsne.gov.ge](https://matsne.gov.ge)-ის კანონმდებლობა რედაქციებით, ყველა ინსტანციის სასამართლო პრაქტიკა, საკონსტიტუციო სასამართლო და ECHR, პარლამენტის კანონპროექტები, ადმინისტრაციული ორგანოები და საჯარო რეესტრები, ასევე ვადებისა და ბაჟის გამოთვლა ცოცხალი ნორმებიდან.
 
-**What?** An MCP server that connects AI assistants to Georgia's official legislative database.
+**What?** Ordo — an MCP server that brings Georgian law, court practice and public registries into any AI assistant.
 
 **Why?** იმისთვის, რომ AI-ს შეეძლოს ქართული კანონმდებლობის რეალურ დროში ძებნა, წაკითხვა და ანალიზი — მარტივი, ბუნებრივი ენით.
 
@@ -207,7 +208,7 @@ uv run mcp_server.py
 ```json
 {
   "mcpServers": {
-    "matsne-ge": {
+    "ordo": {
       "command": "uv",
       "args": ["--directory", "C:\\Users\\თქვენი_სახელი\\matsne-gov-ge-mcp", "run", "mcp_server.py"]
     }
@@ -247,7 +248,7 @@ uv run mcp_server.py
 
 ### What is this?
 
-An **MCP server** that connects AI assistants to [matsne.gov.ge](https://matsne.gov.ge) — Georgia's official legislative database. Search, read, and analyze Georgian laws through natural conversation.
+**Ordo** (Latin *order*; *Ordo ab chao* — "order out of chaos") is an **MCP server** that gives AI assistants one place to research Georgian law: [matsne.gov.ge](https://matsne.gov.ge) legislation with historical versions, court practice at every level, the Constitutional Court and the ECHR, parliament bills, administrative bodies and public registries, plus deadline and court-fee calculation from the live norms.
 
 ### Tools
 
@@ -361,7 +362,7 @@ Then add to Claude Desktop:
 ```json
 {
   "mcpServers": {
-    "matsne-ge": {
+    "ordo": {
       "command": "uv",
       "args": ["--directory", "/path/to/matsne-gov-ge-mcp", "run", "mcp_server.py"]
     }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MCP server for Georgia's legal ecosystem.
+Ordo — MCP server for Georgia's legal ecosystem (Ordo ab chao: order out of legal chaos).
 
 Sources:
   - matsne.gov.ge    - legislation (საკანონმდებლო მაცნე)
@@ -74,9 +74,9 @@ companyinfo = CompanyInfoAPI()
 geostat = GeostatRegisterAPI()
 
 app = FastMCP(
-    "matsne-ge",
+    "ordo",
     instructions=(
-        "Georgia's legal ecosystem: legislation (matsne.gov.ge), common-court "
+        "Ordo — Georgia's legal ecosystem: legislation (matsne.gov.ge), common-court "
         "decisions and acts (ecd.court.ge), Supreme Court cassation + Grand "
         "Chamber (supremecourt.ge), Constitutional Court (constcourt.ge), and "
         "the European Court of Human Rights (HUDOC). "

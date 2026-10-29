@@ -1,5 +1,5 @@
 [project]
-name = "matsne-mcp"
+name = "ordo-mcp"
 version = "0.3.0"
 description = "MCP server for Georgian legal research: legislation with versions, all courts, ECHR, parliament bills, Supreme Court analytics, administrative bodies, procedural deadlines, court state fees, public registries, PDFs and citation verification"
 requires-python = ">=3.10"
