@@ -121,6 +121,27 @@ Please walk me through each step and check as we go.
 | `verify_citation` | ამოწმებს, მართლა წერია თუ არა ციტატა მითითებულ კანონში/გადაწყვეტილებაში (ჰალუცინაციის წინააღმდეგ) |
 | `research_article` | მუხლი + მისი სასამართლო პრაქტიკა ერთი ზარით, ავტორიტეტის მიხედვით |
 
+### 📚 უზენაესის ანალიტიკა, ვადები, PDF (ახალი)
+
+| Tool | რას აკეთებს |
+|---|---|
+| `supreme_practice_search` / `_list` / `_get` / `_categories` | პრაქტიკის განზოგადებები, რეკომენდაციები, მნიშვნელოვანი განმარტებები, გადაწყვეტილებათა კრებულები, ჟურნალი |
+| `deadline_calculate` / `deadline_get_rule` / `deadline_calculate_custom` / `deadline_list_procedures` / `deadline_holidays` | საპროცესო ვადა ცოცხალი ნორმიდან (ციტატით, უქმე დღეებით, გაფრთხილებით) — მეხსიერებიდან არასდროს |
+| `pdf_get_text` / `pdf_search` | PDF-ის ტექსტი და ძებნა (ძველი AcadNusx/LitNusx ფონტების ავტომატური გასწორებით) |
+| `court_search_article` | საერთო სასამართლოების გადაწყვეტილებები კონკრეტულ მუხლზე (ecd: 2018–2020) |
+
+### 🏢 ადმინისტრაციული ორგანოები (ახალი)
+
+| Tool | რას აკეთებს |
+|---|---|
+| `tax_dispute_search` / `_get` | ფინანსთა სამინისტროს დავების განხილვის საბჭოს გადაწყვეტილებები (სრული ტექსტი) |
+| `rs_dispute_search` / `_get` | შემოსავლების სამსახურის დავების საბჭო |
+| `tax_guidance_search` / `_get` | საჯარო გადაწყვეტილებები, სიტუაციური სახელმძღვანელოები |
+| `competition_search` | კონკურენციისა და მომხმარებლის დაცვის სააგენტო |
+| `ombudsman_search` / `_get` | სახალხო დამცველის რეკომენდაციები და წინადადებები |
+| `procurement_dispute_search` / `_get` | სახელმწიფო შესყიდვების დავების საბჭო |
+| `bar_ethics_search` | ადვოკატთა ასოციაციის ეთიკის კომისია |
+
 **Prompts (შაბლონები):** `legal_memo` (იურიდიული მემორანდუმი), `case_analysis` (IRAC ანალიზი),
 `law_change_review` (რა შეიცვალა კანონში + მოლოდინში მყოფი კანონპროექტები).
 
@@ -268,6 +289,27 @@ so agents weigh precedent correctly.
 |---|---|
 | `verify_citation` | Checks a quote really appears in the cited law/decision (anti-hallucination) |
 | `research_article` | An article + its court practice in one call, by authority |
+
+### 📚 Supreme Court analytics, deadlines, PDFs (new)
+
+| Tool | Purpose |
+|---|---|
+| `supreme_practice_search` / `_list` / `_get` / `_categories` | Practice generalizations, recommendations, important explanations, decision collections, journal |
+| `deadline_calculate` / `deadline_get_rule` / `deadline_calculate_custom` / `deadline_list_procedures` / `deadline_holidays` | Procedural deadlines from the live norm (quoted, holiday-aware, with a warning) — never from memory |
+| `pdf_get_text` / `pdf_search` | PDF text and search (legacy AcadNusx/LitNusx fonts repaired automatically) |
+| `court_search_article` | Common-court decisions citing one article (ecd: 2018–2020) |
+
+### 🏢 Administrative bodies (new)
+
+| Tool | Purpose |
+|---|---|
+| `tax_dispute_search` / `_get` | Ministry of Finance Dispute Resolution Council decisions (full text) |
+| `rs_dispute_search` / `_get` | Revenue Service dispute council |
+| `tax_guidance_search` / `_get` | Public rulings, situational guides |
+| `competition_search` | Competition and Consumer Protection Agency |
+| `ombudsman_search` / `_get` | Public Defender recommendations and proposals |
+| `procurement_dispute_search` / `_get` | State procurement Dispute Resolution Council |
+| `bar_ethics_search` | Bar Association ethics commission |
 
 **Prompts:** `legal_memo`, `case_analysis` (IRAC), `law_change_review`.
 

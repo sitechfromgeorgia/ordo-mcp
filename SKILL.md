@@ -532,3 +532,62 @@ traffic (2026-10-29). Plain urllib works (Cloudflare only challenges the HTML sh
   (few hits); the Supreme Court search is the productive one. Grand Chamber PDFs are not searchable.
 - `article_phrase(key)` — Georgian ordinal citation stems: 1 → `პირველი მუხლ`, 2–20 and multiples of
   20 → `მე-N მუხლ`, others → `N-ე მუხლ`, superscripts → `151¹ მუხლ`.
+
+# Supreme Court Analytics (`supreme_practice_api.py`)
+
+| Category key | Source | Items | Authority |
+|---|---|---|---|
+| `generalizations` | `/get-analitics` cat 29 | 53 (2005–2022) | 4, analytical_guidance, non-binding |
+| `generalizations_legacy` | old site (embedded catalog) | 15 (2011–2014) | 4 |
+| `recommendations_{civil,admin,criminal,magistrate}` | old site | 5 / 3 / 2 / 2 | 4 |
+| `explanations` | old site `/ganmartebebi` | 99 (2010–2021) | 4, case_digest |
+| `publications_legacy` | old site `/publications/` | 91 | 4 |
+| `research`, `research_publications` | cat 30, 32 | 25, 10 | 1 (4 if title is practice/guidance) |
+| `human_rights_center` | cat 10 | 75 | 7 for ECHR material, else 1 |
+| `echr_vs_georgia`, `echr_key_judgments` | cat 12, 13 | 152, 25 | 7 (unofficial translation) |
+| `international_acts` | cat 23 | 37 | 1 (official text on matsne) |
+| `digest_{civil,criminal,admin,disciplinary,qualification}` | `/decisions/...` | 318/188/319/65/17 | 4, decision_collection |
+| `journal` | `/journal/ka/issues` | 78 (2006–2026) | 1 |
+
+`POST https://www.supremecourt.ge/get-analitics` with `cat`, `searchT`, `collectin`, `alldoc`, `_token`
+(CSRF from the page's inline JS, plus the session cookie). Methods: `list_categories()`,
+`list_materials(category, query, year, limit)`, `search_materials(query, categories, limit)`,
+`get_material(url)`, `check_available(url)`.
+
+# Administrative Bodies (`agencies_api.py`)
+
+| Class | Source | Coverage |
+|---|---|---|
+| `TaxDisputeCouncilAPI` | InfoHub type 16 | MoF Dispute Resolution Council, ~4.7k, 2018→, full text |
+| `RevenueServiceDisputeAPI` | InfoHub type 15 | RS dispute council orders, ~6.7k, 2018→ |
+| `TaxGuidanceAPI` | InfoHub types 2/4/17/1 | public rulings (16), situational guides (~630), tax court decisions (203) |
+| `CompetitionAgencyAPI` | gcca.gov.ge `index.php?m=…` | 9 categories, PDFs |
+| `PublicDefenderAPI` | ombudsman.ge | recommendations ~276, proposals ~156, general ~72 |
+| `ProcurementDisputeAPI` | tenders.procurement.gov.ge dispute engine | ~15k complaints 2011→ |
+| `BarEthicsAPI` | gba.ge | ethics decisions (anonymised PDFs), 12 categories |
+
+InfoHub: `GET https://infohubapi.rs.ge/api/documents/search?q=&types=&skip=&take=&searchType=3…`
+(header `languageCode: ka`), `/api/documents/{id}/details`, `/api/documents/{id}/export/pdf`.
+All items: `authority_level 1`, `kind`, `binding`, `doc_type`.
+
+# Procedural Deadlines (`deadlines.py`)
+
+`DeadlineCalculator().calculate_deadline(procedure, start_date, as_of_date="", extra_holidays=None)`
+→ `status` (computed / conservative / not_computed), `end_date`, `steps`, `period.quoted_sentence`,
+`url`, `counting_rules`, `holidays_source`, `related_norms`, `version_caveat`, `warning`.
+22 procedures (`list_procedures()`): civil appeal/cassation/private complaint/default judgment,
+administrative appeal/cassation/lawsuits (individual act, normative act, refusal), GAC complaints,
+criminal appeal/cassation/restoration motion, labour dismissal claims, civil limitation periods.
+`calculate_custom()` for any other period (flags a mismatch with the cited norm), `holidays(year)`.
+Known limits: start-date choice, suspension (CPC 62), ad-hoc government holidays (pass
+`extra_holidays`), GAC month periods (`conservative`), Saturday/Sunday assumed as rest days.
+
+# PDF Text (`pdf_text.py`)
+
+`extract_pdf_text(url_or_bytes, max_pages=None, include_pages=False)` → `text, pages, method
+(pdfium | pdfium+legacy-font-map), legacy_font_fixed, legacy_fonts, scanned, scanned_pages, note`.
+`search_pdf(url_or_bytes, query, max_results=20, context=200, fuzzy=True)` → matches with page
+numbers (+ `fuzzy_match` via `research.verify_quote`). `download_pdf()` (40 MB cap, retries,
+`%PDF-` check), `legacy_to_unicode()`, `legacy_score()`. Library comparison on 66 real PDFs:
+pypdfium2 best (pypdf joins lines on the norms PDF, pdfminer misorders justified text, pymupdf
+drops spaces + AGPL).

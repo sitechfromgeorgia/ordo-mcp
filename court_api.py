@@ -226,29 +226,125 @@ class EcdCourtAPI(_BaseAPI):
             "pdf_url": f"{self.BASE}/Decision/DecisionDocumentPdf?InstanceId={instance_id}&DecisionDocumentId={item.get('DecisionDocumentId')}",
         }
 
+    # ── Full-text semantics (measured live 2026-10-29) ─────────
+    #
+    # The DB only holds decisions dated 2018-01-01 … 2020-04-30 (44,489 docs);
+    # nothing newer or older is searchable here — use supremecourt.ge for that.
+    #
+    # Each entry of Texts is matched like this, and all entries are ANDed:
+    #   * ONE word  → substring inside a word: "ალიმენტ" 1363, "ლიმენტ" 1375,
+    #                 "ალიმენტი" 1312. '*', '?' are ignored ("ალიმენტ*" 1363).
+    #                 A hyphen kills it: "361-ე" → 0 (words are split on '-'),
+    #                 while the phrase "361 ე" → 5151.
+    #   * SEVERAL words → exact phrase of WHOLE words, adjacent, in order:
+    #                 "361-ე მუხლის" 4361 but "361-ე მუხლ" 3 (stem ≠ word),
+    #                 "ალიმენტი ბავშვი" 0. No wildcards, no OR/|/quotes syntax.
+    #   * Texts=[a, b] → a AND b anywhere in the decision
+    #                 (["ალიმენტი", "ბავშვი"] 987).
+    # Results come back newest first; Take > 50 → HTTP 500.
+    # So: stems only work as single words; in phrases every case form
+    # (მუხლის / მუხლით / მუხლი …) is a separate query — OR them via search_any().
+
+    MAX_TAKE = 50
+
+    # Case endings of a consonant-final noun stem, most frequent first
+    # (hit counts for "სამოქალაქო საპროცესო კოდექსის 102-ე მუხლ…": ის 6893,
+    #  ით 507, ზე 327, ი 279, ში 40, ს 33, ისა 24, იდან 22, მა 16, ების 9).
+    STEM_ENDINGS = ("ის", "ით", "ი", "ზე", "ს", "ში", "იდან", "ისა", "მა", "ების", "ებით", "ები")
+    ARTICLE_ENDINGS = STEM_ENDINGS[:8]
+
+    @staticmethod
+    def _clean_text(text: str) -> str:
+        """Normalize one Texts entry to what the server can match: collapse
+        whitespace, drop wildcard chars; a single hyphenated word ("361-ე",
+        "მე-2") becomes the phrase "361 ე" (the index splits words on '-')."""
+        text = " ".join(str(text).replace("%", " ").split())
+        if " " not in text:
+            text = text.strip("*?")
+            if "-" in text:
+                text = " ".join(p for p in text.replace("*", "").split("-") if p)
+        return text
+
+    @classmethod
+    def expand_forms(cls, text: str, endings: Optional[tuple] = None,
+                     max_forms: int = 24) -> list:
+        """
+        Expand a phrase whose words end in '*' into concrete word forms.
+
+        Multi-word texts only match whole words, so "361-ე მუხლ*" must become
+        ["361-ე მუხლის", "361-ე მუხლით", "361-ე მუხლი", …]. Single words are
+        substring-matched server-side and are returned as-is (minus '*').
+        Several starred words expand to their product, capped at max_forms.
+        """
+        words = " ".join(str(text).split()).split(" ")
+        if len(words) < 2 or not any(w.endswith("*") and len(w) > 1 for w in words):
+            return [cls._clean_text(text)] if text and text.strip() else []
+        endings = endings or cls.STEM_ENDINGS
+        forms = [""]
+        for w in words:
+            alts = [w[:-1] + e for e in endings] if w.endswith("*") and len(w) > 1 else [w]
+            forms = [f"{f} {a}".strip() for f in forms for a in alts][:max_forms]
+        return forms
+
+    @staticmethod
+    def _article_ordinal(article: str) -> str:
+        """Georgian ordinal citation form: "361-ე", "მე-20", "პირველი", "151¹"."""
+        number, _, sup = str(article).strip().partition("^")
+        if sup:
+            return number + sup.translate(str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹"))
+        n = int(number)
+        if n == 1:
+            return "პირველი"
+        if n <= 20 or n % 20 == 0:
+            return f"მე-{n}"
+        return f"{n}-ე"
+
     def search_decisions(self, case_no: str = "", date_from: Optional[str] = None,
                          date_to: Optional[str] = None, instance_id=None,
                          court_code=None, case_category_id=None,
                          litigation_type_id=None, type_id=None,
                          texts: Optional[list] = None,
-                         skip: int = 0, take: int = 20) -> dict:
+                         skip: int = 0, take: int = 20,
+                         expand: bool = True) -> dict:
         """
         POST /Decision/DecisionDocuments — full decision search.
+
+        Coverage: decisions dated 2018-01-01 … 2020-04-30 only (~44.5k).
 
         Args:
             case_no: Case number (full 16-digit or partial)
             date_from / date_to: Decision date range, 'YYYY-MM-DD' (or None)
             instance_id: 1=first, 2=appeals, 3=supreme
             court_code: Court code from get_courts()
-            case_category_id: from get_case_categories()
-            litigation_type_id: dispute category / article (მუხლი)
+            case_category_id: from get_case_categories() (1=criminal, 2=civil, 3=admin)
+            litigation_type_id: ONE id from get_litigation_types() — for criminal
+                cases it is a Criminal Code article/part/subparagraph ("177 2 ა"),
+                for admin cases an Administrative Offences Code article; for civil
+                cases a dispute category. See litigation_types_for_article().
             type_id: decision type from get_decision_types()
-            texts: list of full-text search terms (multiple allowed)
-            skip / take: pagination
+            texts: full-text terms, ANDed. One word = substring match ("ალიმენტ");
+                several words = exact phrase of whole words ("361-ე მუხლის", NOT
+                "361-ე მუხლ"). End a word with '*' to search all its case forms
+                ("სამოქალაქო კოდექსის 361-ე მუხლ*") — this runs one query per form
+                and merges them (see search_any).
+            skip / take: pagination (take ≤ 50 — the server 500s above that)
+            expand: expand '*' stems in phrases (default True)
 
         Returns:
-            {"total": int, "items": [...], "raw": <server response>}
+            {"total": int, "items": [...]}  (+ "variants"/"total_exact" when expanded)
         """
+        texts = [t for t in (texts or []) if t and str(t).strip()]
+        if expand and any(len(self.expand_forms(t)) > 1 for t in texts):
+            # AND of ORs → product of alternatives, one server query each
+            combos = [[]]
+            for t in texts:
+                combos = [c + [f] for c in combos for f in self.expand_forms(t)][:24]
+            common = dict(case_no=case_no, date_from=date_from, date_to=date_to,
+                          instance_id=instance_id, court_code=court_code,
+                          case_category_id=case_category_id,
+                          litigation_type_id=litigation_type_id, type_id=type_id)
+            return self.search_any([dict(common, texts=c) for c in combos], skip=skip, take=take)
+        texts = [c for c in (self._clean_text(t) for t in texts) if c]
         payload = {
             "CaseNo": case_no,
             "DecisionDateFrom": date_from,
@@ -258,9 +354,9 @@ class EcdCourtAPI(_BaseAPI):
             "CaseCategoryId": case_category_id if case_category_id not in (None, "") else "",
             "LitigationTypeId": litigation_type_id if litigation_type_id not in (None, "") else "",
             "TypeId": type_id if type_id not in (None, "") else "",
-            "Texts": texts or [],
+            "Texts": texts,
             "Skip": skip,
-            "Take": take,
+            "Take": max(1, min(int(take), self.MAX_TAKE)),
         }
         res = self._post_json("/Decision/DecisionDocuments", payload)
         if "error" in res:
@@ -270,6 +366,186 @@ class EcdCourtAPI(_BaseAPI):
         data = res.get("data") or {}
         items = [self._normalize_item(i) for i in (data.get("Items") or [])]
         return {"total": data.get("Total", len(items)), "items": items}
+
+    # ── OR-search / article search ────────────────────────────
+
+    def search_any(self, variants: list, skip: int = 0, take: int = 20,
+                   exact_total: bool = False, max_scan: int = 2000) -> dict:
+        """
+        OR-merge several searches (the server itself only ANDs).
+
+        Each variant is a dict of search_decisions() kwargs (texts, litigation_type_id,
+        filters …) — or a plain list of texts / a single text string. Every variant is
+        queried for its newest skip+take hits (pages of 50), results are de-duplicated
+        and re-sorted newest first, so skip/take paginate the union.
+
+        Args:
+            variants: [{"texts": [...], "instance_id": 1, ...}, ["a b"], "c", ...]
+            skip / take: pagination over the merged result
+            exact_total: also page through every variant (≤ max_scan hits each) to
+                count the union exactly — slow for broad queries (one request / 50 hits)
+
+        Returns:
+            {"total": int, "total_exact": bool, "total_max": int,
+             "variants": [{"texts", "litigation_type_id", "total"}],
+             "items": [... each with "matched": [variant indexes]]}
+            total is exact when total_exact, else a lower bound (largest variant);
+            total_max is the sum of variant totals (upper bound).
+        """
+        merged, report, totals, complete = {}, [], [], True
+        need = skip + take
+        for idx, v in enumerate(variants):
+            if isinstance(v, str):
+                v = {"texts": [v]}
+            elif isinstance(v, (list, tuple)):
+                v = {"texts": list(v)}
+            v = dict(v, expand=False)
+            v.pop("skip", None); v.pop("take", None)
+            fetched, total, pos = 0, None, 0
+            limit = max_scan if exact_total else need
+            while total is None or pos < min(total, limit):
+                res = self.search_decisions(skip=pos, take=self.MAX_TAKE, **v)
+                if "error" in res:
+                    return {"error": res["error"], "variant": v}
+                total = res.get("total", 0)
+                for item in res.get("items", []):
+                    key = (item.get("instance_id"), item.get("id"))
+                    if key in merged:
+                        merged[key]["matched"].append(idx)
+                    else:
+                        merged[key] = dict(item, matched=[idx])
+                    fetched += 1
+                if not res.get("items"):
+                    break
+                pos += self.MAX_TAKE
+            totals.append(total or 0)
+            complete = complete and fetched >= (total or 0)
+            report.append({"texts": v.get("texts"), "litigation_type_id": v.get("litigation_type_id"),
+                           "total": total or 0})
+        items = sorted(merged.values(), key=lambda i: (i.get("date") or "", i.get("id") or 0),
+                       reverse=True)
+        return {"total": len(merged) if complete else max(totals, default=0),
+                "total_exact": complete, "total_max": sum(totals),
+                "variants": report, "items": items[skip:skip + take]}
+
+    # Criminal Code ("177 2 ა", "18 -  177 3 ", "189 (1) 4") and Administrative
+    # Offences Code ("165(7)-2", "119-1-ა") litigation-type names
+    _LT_CRIMINAL = re.compile(r"^(?:(18|19|25)\s*-\s*)?(\d+)\s*(?:\((\d+)\))?\s*(\d+)?\s*([ა-ჰ])?$")
+    _LT_ADMIN = re.compile(r"^(\d+)(?:\((\d+)\))?(?:-(\d+))?(?:-([ა-ჰ]))?$")
+
+    def litigation_types_for_article(self, article: str, part=None, subparagraph: str = "",
+                                     case_category_id: int = 1,
+                                     include_inchoate: bool = False) -> list:
+        """
+        Litigation-type ids that encode a code article — the precise, classifier-
+        based article filter (no full-text guessing).
+
+        Only criminal (case_category_id=1 → Criminal Code: "177 2 ა" = art. 177
+        part 2 subpar. ა; "18 - 177" / "19 - 177" / "25 - 177" = preparation /
+        attempt / complicity) and administrative (3 → Administrative Offences Code:
+        "165(7)-2" = art. 165⁷ part 2) cases are classified by article. Civil
+        cases (2) use dispute categories instead — use texts there.
+
+        Args:
+            article: "177" or "189^1" (superscript)
+            part / subparagraph: narrow to one part ("2") / subparagraph ("ა")
+            include_inchoate: also include art. 18/19/25 combinations (criminal)
+
+        Returns:
+            [{"id": int, "name": str}] (ids are global across instances)
+        """
+        number, _, sup = str(article).strip().partition("^")
+        res = self.get_litigation_types(case_category_id=case_category_id, filter_text=number)
+        if "error" in res:
+            return []
+        pattern = self._LT_CRIMINAL if int(case_category_id) == 1 else self._LT_ADMIN
+        found = {}
+        for lt in res.get("data") or []:
+            name = " ".join((lt.get("Name") or "").split())
+            m = pattern.match(name)
+            if not m:
+                continue
+            if pattern is self._LT_CRIMINAL:
+                inchoate, art, art_sup, art_part, letter = m.groups()
+                if inchoate and not include_inchoate:
+                    continue
+            else:
+                art, art_sup, art_part, letter = m.groups()
+            if art != number or (art_sup or "") != sup:
+                continue
+            if part not in (None, "") and art_part != str(part):
+                continue
+            if subparagraph and letter != subparagraph:
+                continue
+            found[lt["LitigationTypeId"]] = name
+        return [{"id": k, "name": v} for k, v in sorted(found.items())]
+
+    def search_article(self, article: str, law: str = "", mode: str = "auto",
+                       part=None, instance_id=None, case_category_id=None,
+                       date_from: Optional[str] = None, date_to: Optional[str] = None,
+                       skip: int = 0, take: int = 20, all_forms: bool = False) -> dict:
+        """
+        Decisions citing one article of a law — OR-merges the citation's case forms.
+
+        Args:
+            article: article key, "361" or "151^1"
+            law: the law's name in the GENITIVE as decisions write it, e.g.
+                "სამოქალაქო კოდექსის", "სისხლის სამართლის კოდექსის",
+                "„საჯარო სამსახურის შესახებ“ საქართველოს კანონის". Empty = any law.
+            mode:
+                "phrase"     — "<law> 361-ე მუხლის|მუხლით|მუხლი|…" as exact phrases
+                               (precise: the article is cited next to the law name)
+                "cooccur"    — [law] AND "361-ე მუხლის|…" anywhere (higher recall,
+                               catches "ამავე კოდექსის 361-ე მუხლის"; may pick up the
+                               same article number of another law in the decision)
+                "classifier" — litigation-type ids (Criminal Code / Administrative
+                               Offences Code only; exact, independent of wording)
+                "auto"       — phrase, plus classifier when law is the Criminal Code
+                               or the Administrative Offences Code
+            part: with classifier modes, restrict to one part of the article
+            all_forms: try all 12 case endings instead of the 8 frequent ones
+            instance_id / case_category_id / date_from / date_to: extra filters
+            skip / take: pagination over the merged result
+
+        Returns:
+            search_any() result + "search_mode", "phrase", "litigation_types".
+            Coverage: 2018-01 … 2020-04 only.
+        """
+        ordinal = self._article_ordinal(article)
+        law = " ".join(law.split())
+        endings = self.STEM_ENDINGS if all_forms else self.ARTICLE_ENDINGS
+        forms = [f"{ordinal} მუხლ{e}" for e in endings]
+        common = dict(instance_id=instance_id, case_category_id=case_category_id,
+                      date_from=date_from, date_to=date_to)
+
+        lt_category = None
+        if "სისხლის სამართლის კოდექს" in law and "საპროცესო" not in law:
+            lt_category = 1
+        elif "სამართალდარღვევათა კოდექს" in law:
+            lt_category = 3
+        if mode == "auto":
+            mode = "phrase+classifier" if lt_category else "phrase"
+
+        variants, litigation_types = [], []
+        if "phrase" in mode:
+            variants += [dict(common, texts=[f"{law} {f}".strip()]) for f in forms]
+        elif mode == "cooccur":
+            variants += [dict(common, texts=([law, f] if law else [f])) for f in forms]
+        if "classifier" in mode:
+            if not lt_category:
+                return {"error": "classifier mode needs law = Criminal Code or "
+                                 "Administrative Offences Code (genitive form)"}
+            litigation_types = self.litigation_types_for_article(
+                article, part=part, case_category_id=lt_category)
+            variants += [dict(common, litigation_type_id=lt["id"]) for lt in litigation_types]
+        if not variants:
+            return {"error": f"Unknown mode '{mode}' — use auto, phrase, cooccur or classifier"}
+        res = self.search_any(variants, skip=skip, take=take)
+        if "error" not in res:
+            res.update(search_mode=mode, phrase=f"{law} {ordinal} მუხლ…".strip(),
+                       litigation_types=litigation_types,
+                       coverage="ecd.court.ge holds decisions dated 2018-01-01 … 2020-04-30 only")
+        return res
 
     def get_decision_text(self, decision_document_id: int, instance_id: int) -> dict:
         """
@@ -583,6 +859,21 @@ if __name__ == "__main__":
         if "error" not in txt:
             print(f"  Chars: {len(txt['text'])}")
             print(f"  Preview: {txt['text'][:120]}")
+
+    # 3b. ECD full-text semantics + article search
+    print("\n[ecd] Full-text semantics (stem vs phrase):")
+    for t in (["361-ე მუხლ"], ["361-ე მუხლის"], ["361-ე მუხლ*"], ["ალიმენტ"]):
+        rr = ecd.search_decisions(texts=t, take=1)
+        print(f"  {t} → {rr.get('total')}" + ("" if "total_exact" not in rr
+                                               else f" (exact={rr['total_exact']})"))
+    print("\n[ecd] search_article: Civil Code 361 / Criminal Code 177:")
+    for art, law in (("361", "სამოქალაქო კოდექსის"), ("177", "სისხლის სამართლის კოდექსის")):
+        ra = ecd.search_article(art, law=law, take=3)
+        if "error" not in ra:
+            print(f"  {law} {art}: ≥{ra['total']} (≤{ra['total_max']}) mode={ra['search_mode']} "
+                  f"classifier ids={len(ra['litigation_types'])}")
+            for it in ra["items"]:
+                print(f"    [{it['authority_level']}] {it['date']} | {it['case_number']} | {it['court']}")
 
     # 4. Supreme search
     print("\n[supreme] Cassation search (palata=1):")

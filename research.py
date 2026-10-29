@@ -148,8 +148,17 @@ class LegalResearch:
     def _source_text(self, source: str, law: str = "", doc_id: int = 0, article: str = "",
                      part=None, as_of_date: str = "", decision_document_id: int = 0,
                      instance_id: int = 0, case_id: int = 0, palata: int = 1,
-                     legal_id: int = 0, itemid: str = "") -> dict:
+                     legal_id: int = 0, itemid: str = "", url: str = "") -> dict:
         """Fetch the text a quote is attributed to: {"text", "url", "label"} or {"error"}."""
+        if source == "pdf":
+            from pdf_text import extract_pdf_text  # optional dependency (pypdfium2)
+            doc = extract_pdf_text(url)
+            if "error" in doc:
+                return doc
+            if not doc["text"].strip():
+                return {"error": doc.get("note") or "PDF has no text layer (scanned)"}
+            return {"text": doc["text"], "url": url, "label": f"PDF ({doc['pages']} pages)",
+                    "legacy_font_fixed": doc["legacy_font_fixed"]}
         if source == "matsne":
             if article:
                 art = self.matsne.get_article(article, law=law, doc_id=doc_id, part=part,
@@ -196,7 +205,7 @@ class LegalResearch:
             doc = self.echr.get_case(itemid)
             return doc if "error" in doc else {
                 "text": doc["text"], "url": doc["url"], "label": f"ECHR {itemid}"}
-        return {"error": f"Unknown source '{source}' — use matsne, ecd, supreme, constitutional or echr"}
+        return {"error": f"Unknown source '{source}' — use matsne, ecd, supreme, constitutional, echr or pdf"}
 
     def verify_citation(self, quote: str, source: str, **ids) -> dict:
         """
@@ -208,14 +217,22 @@ class LegalResearch:
             supreme        — case_id + palata
             constitutional — legal_id
             echr           — itemid
+            pdf            — url (Grand Chamber, parliament files, ecd/matsne PDFs, …)
 
-        Returns verify_quote()'s verdict plus the source label and URL.
+        Returns verify_quote()'s verdict plus the source label and URL
+        (and the page number for PDFs).
         """
         src = self._source_text(source, **ids)
         if "error" in src:
             return {"verdict": "source_unavailable", "error": src["error"]}
         result = verify_quote(src["text"], quote)
         result["source"] = {k: v for k, v in src.items() if k != "text" and v}
+        if source == "pdf" and result.get("verdict") not in (None, "not_found"):
+            from pdf_text import search_pdf  # cached: no second download
+            hit = search_pdf(ids.get("url", ""), quote, max_results=1)
+            page = (hit.get("matches") or [{}])[0].get("page") or (hit.get("fuzzy_match") or {}).get("page")
+            if page:
+                result["source"]["page"] = page
         if result.get("verdict") in ("partial", "not_found"):
             result["advice"] = ("Do not attribute this quote to the source as written. "
                                 "Use matched_text (if any) or re-read the source.")
@@ -263,14 +280,23 @@ class LegalResearch:
                              "authority_level": 4, "total": sc.get("total", 0),
                              "items": sc.get("cases", [])[:max_results]})
 
-        ecd = self.ecd.search_decisions(texts=[full_phrase], take=max_results)
+        # ecd matches multi-word texts as whole-word phrases, so search_article ORs
+        # the case forms (მუხლის/მუხლით/მუხლი…) and, for the Criminal / Administrative
+        # Offences Code, the article's litigation-type classifier ids. For laws
+        # outside LAW_CONTEXT the title is not in the genitive, so require it only
+        # to co-occur with the article citation instead of preceding it.
+        ecd = self.ecd.search_article(art["article"], law=law_gen, take=max_results,
+                                      mode="auto" if doc_id in self.LAW_CONTEXT else "cooccur")
         if "error" in ecd:
             notes.append(f"common courts: {ecd['error']}")
         else:
             items = sorted(ecd.get("items", []), key=lambda i: -(i.get("authority_level") or 0))
             practice.append({"court": "საერთო სასამართლოები (ecd.court.ge)",
                              "authority_level": max((i.get("authority_level") or 0 for i in items), default=2),
-                             "total": ecd.get("total", 0), "items": items})
+                             "total": ecd.get("total", 0), "total_exact": ecd.get("total_exact"),
+                             "search_mode": ecd.get("search_mode"), "items": items})
+            notes.append("ecd.court.ge only holds decisions dated 2018-01 … 2020-04; "
+                         "its total is a lower bound unless total_exact.")
 
         practice.sort(key=lambda p: -p["authority_level"])
         notes.append("Grand Chamber decisions (authority 5) are PDFs without text search — "

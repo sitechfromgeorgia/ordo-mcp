@@ -1,9 +1,10 @@
-# AGENTS.md — Georgia Legal Ecosystem MCP (Matsne + Courts + Parliament)
+# AGENTS.md — Georgia Legal Ecosystem MCP
 
 ## What this is
 
-Pure stdlib Python wrappers for Georgia's legal ecosystem, plus a single MCP server exposing
-everything as tools/resources for AI agents:
+Python wrappers for Georgia's legal ecosystem, plus a single MCP server exposing everything as
+tools/resources/prompts for AI agents that assist lawyers (the server is built for *other people's*
+agents — keep tool descriptions self-explanatory and outputs citeable):
 
 - **`matsne_api.py`** — matsne.gov.ge legislation (საკანონმდებლო მაცნე)
 - **`court_api.py`** — court practice: `EcdCourtAPI` (ecd.court.ge common courts) +
@@ -13,15 +14,24 @@ everything as tools/resources for AI agents:
 - **`parliament_api.py`** — `ParliamentAPI` (info.parliament.ge): bills and their legislative history
 - **`research.py`** — `LegalResearch`: cross-source citation verification + article practice search
   (takes the wrapper instances; no HTTP of its own)
+- **`supreme_practice_api.py`** — `SupremePracticeAPI`: Supreme Court analytics (generalizations,
+  recommendations, explanations, decision collections, ECHR translations, journal)
+- **`agencies_api.py`** — administrative bodies: MoF tax dispute council, Revenue Service disputes
+  + guidance (InfoHub API), competition agency, Public Defender, procurement disputes, Bar ethics
+- **`deadlines.py`** — `DeadlineCalculator`: procedural deadlines computed from the LIVE norms
+- **`pdf_text.py`** — PDF text extraction/search with legacy Georgian font repair
 
-**Files:** `matsne_api.py`, `court_api.py`, `higher_courts_api.py`, `parliament_api.py`,
-`research.py`, `SKILL.md` (reference docs),
+**Files:** the modules above, `SKILL.md` (reference docs),
 `mcp_server.py` (MCP server), `pyproject.toml`, `AGENTS.md`, `README.md`, `LICENSE`
 
 ## Key facts
 
-- **API wrappers: zero dependencies** — stdlib only (`json`, `re`, `time`, `urllib`, `html`, `dataclasses`, `typing`). Keep it that way; don't add deps to the wrappers.
-- **MCP server: single dependency** — `mcp>=1.0.0,<2.0.0` in `pyproject.toml`. The `<2.0.0` pin is required: mcp 2.x removed `mcp.server.fastmcp`.
+- **Dependencies only where they buy real capability.** The site wrappers are stdlib-only and
+  should stay so (they are plain HTTP + parsing). `pdf_text.py` needs `pypdfium2` (Apache/BSD,
+  prebuilt wheels) — imported lazily, so every other module imports without it. Adding a
+  dependency is fine when a feature needs it; prefer permissive licenses (the project is MIT —
+  AGPL libraries such as pymupdf are out).
+- **MCP:** `mcp>=1.0.0,<2.0.0` — the `<2.0.0` pin is required: mcp 2.x removed `mcp.server.fastmcp`.
 - **No tests, no CI/CD** — verify changes by running each wrapper's `__main__` live test (hits the real internet; HUDOC rate-limits if run repeatedly).
 - **Git:** remote `https://github.com/sitechfromgeorgia/matsne-gov-ge-mcp.git`, branch `master`. Author identity `Sitech From Georgia <sitechfromgeorgia@example.com>` is set in repo-local config. `docs/` and `index.html` are unrelated untracked scratch files — stage files explicitly, never `git add -A`.
 
@@ -33,6 +43,10 @@ python court_api.py                         # live test: ecd + supreme + grand c
 python higher_courts_api.py                 # live test: constcourt + echr (HUDOC)
 python parliament_api.py                    # live test: parliament bills
 python research.py                          # live test: verify_citation + research_article
+python supreme_practice_api.py              # live test: Supreme Court analytics (~30 requests)
+python agencies_api.py                      # live test: all administrative bodies
+python deadlines.py                         # live test: deadline calculations
+uv run python pdf_text.py                   # live test: PDF extraction (needs pypdfium2)
 uv run mcp_server.py                        # start MCP server (stdio transport)
 uv run python -c "from mcp_server import *" # verify imports
 ```
@@ -103,12 +117,48 @@ run `$env:PYTHONIOENCODING="utf-8"; python matsne_api.py`.
   ordinal: `პირველი`, `მე-2`…`მე-20`, `მე-40`, `21-ე`, `361-ე`, `151¹`); `LAW_CONTEXT` maps core
   codes to their genitive name and Supreme Court chamber
 
+### Supreme Court analytics (`supreme_practice_api.py`)
+
+- New site lists load via `POST /get-analitics` (`cat=<id>`, CSRF `_token` from the page's inline
+  JS + session cookie); cat ids 29, 30, 32, 10, 12, 13, 23 carry data
+- Decision collections: static `/decisions/{civil|criminal|admin|disciplinary|qualification}` pages
+- `old.supremecourt.ge` returns empty bodies; its recommendations / explanations / publications
+  indexes are embedded as `LEGACY_CATALOG` (from Wayback); the PDFs themselves are still live
+- Authority: analytical guidance / explanations / collections = 4 with `binding: False` (Grand
+  Chamber 5 prevails); ECHR translations = 7 (unofficial translation); research/journal = 1
+
+### Administrative bodies (`agencies_api.py`)
+
+- `authority_level = 1` for all (reviewable by courts), `kind` = administrative / advisory /
+  self-regulatory body, `binding` note per item
+- InfoHub (`infohubapi.rs.ge`, header `languageCode: ka` mandatory, `take` < 99): type 16 MoF
+  council, 15 RS disputes, 2/4/17 guidance — full text + PDF export
+- gcca.gov.ge (competition.ge is parked), ombudsman.ge, tenders.procurement.gov.ge dispute engine
+  (PHP session: POST filter then GET pages), gba.ge ethics PDFs. pdps.ge was unreachable (timeout)
+
+### Deadlines (`deadlines.py`)
+
+- **No durations stored.** `PROCEDURES` maps a procedure to (doc_id, article, part, `near` selector);
+  the period is extracted at runtime from the article text (version in force on the start date)
+  and returned with the quoted sentence. Ambiguous → `not_computed`, never a guess
+- Counting rules (CPC 60–61, CrPC 86, GAC 15, CC 121–127) and holidays (Labour Code "უქმე დღეები"
+  article, found by heading; Orthodox Easter computed) are also read live and regex-checked
+- Every result carries `warning` (ka/en + agent instruction) that the agent must relay
+
+### PDFs (`pdf_text.py`)
+
+- pypdfium2 (best Georgian layout, fastest); `\ufffe` soft hyphens stripped; legacy fonts
+  (AcadNusx, LitNusx, AcadMtavr, LitMtavrPS, SakarMtavr, …) converted per font run; overprinted
+  "bold" lines deduped; scanned pages detected (`scanned`, noise OCR layers discarded — no OCR)
+- 40 MB cap, in-process cache (32 PDFs), PDFium calls serialized by a lock
+
 ### MCP Server (`mcp_server.py`)
 
-- Imports `MatsneAPI`, `EcdCourtAPI`, `SupremeCourtAPI`, `ConstitutionalCourtAPI`, `EchrAPI`,
-  `ParliamentAPI`, `LegalResearch` — wrappers untouched, MCP is a pure transport layer
-- 14 `matsne_*` + 4 `court_*` + 4 `supreme_*` + 2 `constitutional_*` + 2 `echr_*` +
-  2 `parliament_*` + `verify_citation` + `research_article` = 30 tools
+- Imports every module above — wrappers untouched, MCP is a pure transport layer
+- 54 tools: 14 `matsne_*`, 5 `court_*`, 4 `supreme_*`, 2 `constitutional_*`, 2 `echr_*`,
+  2 `parliament_*`, `verify_citation`, `research_article`, 5 `deadline_*`, 2 `pdf_*`,
+  4 `supreme_practice_*`, 13 administrative-body tools (`tax_dispute_*`, `rs_dispute_*`,
+  `tax_guidance_*`, `competition_search`, `ombudsman_*`, `procurement_dispute_*`, `bar_ethics_search`)
 - 3 prompts: `legal_memo`, `case_analysis` (IRAC), `law_change_review` — they share `_RULES`
   (sources with URLs, as_of_date, check_status, authority order, verify every quote)
 - 6 resources: `matsne://document/{id}`, `matsne://today`, `court://decision/{id}/{instance}`,
@@ -135,20 +185,42 @@ run `$env:PYTHONIOENCODING="utf-8"; python matsne_api.py`.
 ### Parliament gotchas
 
 - **`limit` > 50 returns an empty body** — `PAGE_MAX = 50`
-- **`billTypeId` is ignored when `searchItem` is set** — `search_bills()` then filters client-side
-  over the newest ≤500 text matches (`_search_filtered`) and reports `scanned`
+- **`billTypeId` is ignored together with `searchItem`**, but the advanced-search params
+  (`billName`, `packageName`, `billDescription`, `initiator`, `registrationDate1/2`) DO combine
+  with it — `search_bills()` gets name matches server-side, then scans "related" bills (query only
+  in the package) in parallel (6 workers, 0.3 s spacing) only when needed (`scan_related`)
 - **`searchItem` also matches the package name**, so sibling bills of a package show up —
-  `name_match` flags bills whose own name contains the query (sorted first when filtering)
+  `name_match` flags bills whose own name contains the query (name matches come first)
+- The server spends ~0.1 s per returned row, but serves concurrent requests in parallel
 - **Sort by `billPackage.registrationDate`** — sorting by `id` is string-ordered server-side
 - Codes that are **organic laws** (e.g. Labour Code since 2013) are amended by `bill_type_id=11`, not 1
 
 ### Court practice gotchas
+
+- **ecd.court.ge only holds decisions dated 2018-01 … 2020-04** (~44k) — tell users when practice
+  outside that window is needed (use the Supreme Court search instead)
+- **ecd `Texts` semantics:** one word = substring; several words = exact phrase of whole adjacent
+  words; list items = AND; no wildcards/OR; a hyphen splits words; take > 50 → HTTP 500.
+  `search_decisions` cleans texts and expands `word*` into case forms (`expand_forms`) merged by
+  `search_any`; `search_article` (phrase / cooccur / classifier modes) is the article-level entry
+- **ecd LitigationTypes encode articles** only for criminal (Criminal Code "177 2 ა", "189 (1) 4"
+  = 189¹ part 4) and administrative-offence cases; civil has ~90 dispute categories only
 
 - **ecd.court.ge** is ASP.NET POST+JSON — always send `Content-Type: application/json; charset=utf-8`; dates are `YYYY-MM-DD` (or `null`); decision dates come back as C# `/Date(ms)/` (use `_parse_csharp_date`)
 - **supremecourt.ge** is GET+HTML — Georgian full-text must be URL-encoded (`urllib.parse.urlencode`); dates are `YYYY/MM/DD`; `supreme_api_token` is decorative (ignored)
 - **Grand Chamber decisions are NOT in `/ka/cases` search** — they live on static `/decisions-grand-chamber/...` pages as PDFs; `grand_chamber()` scrapes their titles + PDF URLs
 - **Grand Chamber 'norms' category** (`didi-palatis-gadatsyvetilebebshi-gamoyenebul-normata-ganmartebebi`) is a single PDF of compiled binding norm interpretations — the highest authority below the Constitution/law
 - **`court_verify_act` requires BOTH barcode and case number** — one alone returns an error page
+
+### PDF / analytics / agencies gotchas
+
+- **Most pre-2010 supremecourt.ge PDFs use legacy Georgian fonts** — without `pdf_text`'s
+  conversion every library returns Latin gibberish ("saqarTvelos")
+- **matsne PDF downloads need a real publication number** — `/download/{id}/0/...` → Access Denied
+- Older parliament "adopted law" / vote files are scans (no text layer) — reported, not OCR'd
+- supremecourt.ge `get-analitics` needs a fresh CSRF token; a stale one gives HTTP 405
+- InfoHub `/api/documents/{id}` is 401 — use `/details`; search rows have no `outcome`
+- Procurement dispute engine ignores free-text org names — resolve via `find_organization`
 
 ### Higher-courts gotchas
 

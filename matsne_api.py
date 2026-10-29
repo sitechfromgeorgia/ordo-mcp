@@ -1048,8 +1048,10 @@ class MatsneAPI:
             result["version_date"] = active.get("date", "")
             if lang == "en":
                 result["lang"] = "en"
-                pub = result["publication"] if result["publication"] is not None else 0
-                result["pdf_url"] = f"{self.BASE}/en/document/download/{doc_id}/{pub}/en/pdf"
+                # the download needs the real publication number — /0/ returns "Access Denied"
+                if result["publication"]:
+                    result["pdf_url"] = (f"{self.BASE}/en/document/download/{doc_id}/"
+                                         f"{result['publication']}/en/pdf")
                 result["translation_caveat"] = ("Unofficial English translation — the Georgian text is the "
                                     "only authentic one and the translation may lag behind it.")
         elif publication is None and lang != "en":

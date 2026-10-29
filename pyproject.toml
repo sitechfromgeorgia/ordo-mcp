@@ -1,6 +1,9 @@
 [project]
 name = "matsne-mcp"
-version = "0.2.0"
-description = "MCP server for Georgia's legal ecosystem (matsne + courts + constcourt + ECHR + parliament) with citation verification"
+version = "0.3.0"
+description = "MCP server for Georgian legal research: legislation with versions, all courts, ECHR, parliament bills, Supreme Court analytics, administrative bodies, procedural deadlines, PDFs and citation verification"
 requires-python = ">=3.10"
-dependencies = ["mcp>=1.0.0,<2.0.0"]
+dependencies = [
+    "mcp>=1.0.0,<2.0.0",
+    "pypdfium2>=4.25,<6",
+]

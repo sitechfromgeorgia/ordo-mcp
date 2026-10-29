@@ -9,6 +9,13 @@ Sources:
   - constcourt.ge    - Constitutional Court acts
   - HUDOC            - European Court of Human Rights
   - info.parliament.ge - bills (კანონპროექტები) and their legislative history
+  - supremecourt.ge analytics - practice generalizations, recommendations,
+                       explanations, decision collections, journal
+  - administrative bodies - MoF tax dispute council, Revenue Service,
+                       competition agency, Public Defender, procurement
+                       disputes, Bar ethics commission
+Plus procedural-deadline calculation from live norms (deadlines.py) and
+PDF text extraction with legacy Georgian font repair (pdf_text.py).
 Plus cross-source research (research.py): citation verification and
 article-level practice search, and MCP prompts for common legal workflows.
 
@@ -25,6 +32,12 @@ from court_api import EcdCourtAPI, SupremeCourtAPI
 from higher_courts_api import ConstitutionalCourtAPI, EchrAPI
 from parliament_api import ParliamentAPI
 from research import LegalResearch
+from supreme_practice_api import SupremePracticeAPI
+from agencies_api import (TaxDisputeCouncilAPI, RevenueServiceDisputeAPI, TaxGuidanceAPI,
+                          CompetitionAgencyAPI, PublicDefenderAPI, ProcurementDisputeAPI,
+                          BarEthicsAPI)
+from deadlines import DeadlineCalculator
+from pdf_text import extract_pdf_text, search_pdf
 
 matsne = MatsneAPI()
 ecd = EcdCourtAPI()
@@ -33,6 +46,15 @@ constcourt = ConstitutionalCourtAPI()
 echr = EchrAPI()
 parliament = ParliamentAPI()
 research = LegalResearch(matsne, ecd, supreme, constcourt, echr)
+supreme_practice = SupremePracticeAPI()
+tax_disputes = TaxDisputeCouncilAPI()
+rs_disputes = RevenueServiceDisputeAPI()
+tax_guidance = TaxGuidanceAPI()
+competition = CompetitionAgencyAPI()
+ombudsman = PublicDefenderAPI()
+procurement = ProcurementDisputeAPI()
+bar_ethics = BarEthicsAPI()
+deadline_calc = DeadlineCalculator()
 
 app = FastMCP(
     "matsne-ge",
@@ -56,7 +78,13 @@ app = FastMCP(
         "matsne_check_status. Before quoting any law or decision in an answer, "
         "run verify_citation on the quote; research_article gathers an "
         "article's court practice in one call; parliament_* tools show pending "
-        "bills that may change the law soon."
+        "bills that may change the law soon. Deadlines: NEVER state a procedural "
+        "deadline from memory — use deadline_calculate / deadline_get_rule and "
+        "always relay their warning, quoted norm and URL to the user. PDFs "
+        "(Grand Chamber, Supreme Court analytics, parliament files, agency "
+        "decisions) are read with pdf_get_text / pdf_search. Administrative-body "
+        "decisions (tax_*, rs_*, competition_*, ombudsman_*, procurement_*, "
+        "bar_ethics_*) carry authority_level 1: below every court."
     ),
 )
 
@@ -169,7 +197,7 @@ def matsne_today_documents() -> list[dict]:
 
 # ── Common courts (ecd.court.ge) ─────────────────────────────
 
-@app.tool(description="Search common-court decisions. Filters: case number, decision date range (YYYY-MM-DD), instance (1=first, 2=appeals, 3=supreme), court code, case category, litigation type (dispute category/article/მუხლი), decision type, and full-text terms. Use court_classifiers to look up filter ids. Results carry authority_level.")
+@app.tool(description="Search common-court decisions (ecd.court.ge). COVERAGE: only decisions dated 2018-01 to 2020-04. Filters: case number, decision date range (YYYY-MM-DD), instance (1=first, 2=appeals, 3=supreme), court code, case category, litigation type (dispute category/article), decision type, full-text terms. texts: one word = substring match (stems OK, e.g. 'ალიმენტ'); several words = exact phrase of whole adjacent words (write '361-ე მუხლის', not '361-ე მუხლ'); several list items = AND. End a word with * to OR-search all its case forms (e.g. 'სამოქალაქო კოდექსის 361-ე მუხლ*'). take ≤ 50. For one article prefer court_search_article. Results carry authority_level.")
 def court_search_decisions(
     case_no: str = "",
     date_from: str = "",
@@ -182,6 +210,7 @@ def court_search_decisions(
     texts: list[str] = None,
     skip: int = 0,
     take: int = 20,
+    expand: bool = True,
 ) -> dict:
     return ecd.search_decisions(
         case_no=case_no,
@@ -193,8 +222,20 @@ def court_search_decisions(
         litigation_type_id=litigation_type_id or "",
         type_id=type_id or "",
         texts=texts or [],
-        skip=skip, take=take,
+        skip=skip, take=take, expand=expand,
     )
+
+
+@app.tool(description="Common-court decisions (ecd.court.ge, 2018-01..2020-04) citing ONE article. article like '361' or '151^1'; law in the GENITIVE as decisions write it ('სამოქალაქო კოდექსის', 'სისხლის სამართლის კოდექსის'). mode: auto | phrase (law + article adjacent) | cooccur (both anywhere — higher recall) | classifier (Criminal Code / Administrative Offences Code article classifier). total is a lower bound unless total_exact.")
+def court_search_article(article: str, law: str = "", mode: str = "auto", part: str = "",
+                         instance_id: str = "", case_category_id: str = "",
+                         date_from: str = "", date_to: str = "", skip: int = 0,
+                         take: int = 20) -> dict:
+    return ecd.search_article(article, law=law, mode=mode, part=part or None,
+                              instance_id=instance_id or None,
+                              case_category_id=case_category_id or None,
+                              date_from=date_from or None, date_to=date_to or None,
+                              skip=skip, take=take)
 
 
 @app.tool(description="Get the full text of a common-court decision by its DecisionDocumentId and InstanceId (both come from court_search_decisions results).")
@@ -267,7 +308,7 @@ def supreme_classifiers() -> dict:
     }
 
 
-@app.tool(description="Supreme Court GRAND CHAMBER decisions — the binding norm interpretations (authority_level 5, mandatory for all common courts). category: civil, criminal, admin, or norms (compiled norm interpretations). Returns PDF links; the title includes date + case number + summary.")
+@app.tool(description="Supreme Court GRAND CHAMBER decisions — the binding norm interpretations (authority_level 5, mandatory for all common courts). category: civil, criminal, admin, or norms (compiled norm interpretations). Returns PDF links; the title includes date + case number + summary. Read or search a PDF with pdf_get_text / pdf_search (old legacy-font PDFs are converted to Unicode).")
 def supreme_grand_chamber(category: str = "civil") -> dict:
     return supreme.grand_chamber(category)
 
@@ -321,30 +362,32 @@ def echr_get_case(itemid: str) -> dict:
 
 # ── Parliament (info.parliament.ge) ──────────────────────────
 
-@app.tool(description="Search bills in the Parliament of Georgia (კანონპროექტები), newest first — laws being drafted that may soon change the legislation. query matches bill/package names (Georgian, e.g. 'საგადასახადო კოდექს'); bill_type_id: 1=law draft, 11=organic law (codes that are organic laws, e.g. the Labour Code, are amended by type 11), 12=constitutional law, 2=parliament resolution. name_match=false means the hit came from another bill in the same package. Each result shows its current stage (I/II/III hearing, კანონი = adopted).")
+@app.tool(description="Search bills in the Parliament of Georgia (კანონპროექტები), newest first — laws being drafted that may soon change the legislation. query matches bill/package names (Georgian, e.g. 'საგადასახადო კოდექს'); bill_type_id: 1=law draft, 11=organic law (codes that are organic laws, e.g. the Labour Code, are amended by type 11), 12=constitutional law, 2=parliament resolution. name_match=false means the hit came from another bill in the same package. Each result shows its current stage (I/II/III hearing, კანონი = adopted). With query + bill_type_id, bills whose own name matches are filtered server-side (fast); related bills (query only in the package / a sibling bill) need a slow scan — scan_related: default only when the page runs past the name matches; true = always (exact total); false = never. limit ≤ 50.")
 def parliament_search_bills(query: str = "", bill_type_id: int | None = None,
-                            page: int = 1, limit: int = 20) -> dict:
-    return parliament.search_bills(query, bill_type_id=bill_type_id, page=page, limit=limit)
+                            page: int = 1, limit: int = 20,
+                            scan_related: bool | None = None) -> dict:
+    return parliament.search_bills(query, bill_type_id=bill_type_id, page=page, limit=limit,
+                                   scan_related=scan_related)
 
 
-@app.tool(description="Full legislative history of one bill (id from parliament_search_bills): every stage (initiated version, I/II/III hearing, resolutions, adopted law) with dates, vote counts, committees, and downloadable files (draft text, explanatory note, current wording of the amended articles, committee conclusions).")
+@app.tool(description="Full legislative history of one bill (id from parliament_search_bills): every stage (initiated version, I/II/III hearing, resolutions, adopted law) with dates, vote counts, committees, and downloadable files (draft text, explanatory note, current wording of the amended articles, committee conclusions) — read them with pdf_get_text; older adopted-law files are scans without a text layer.")
 def parliament_get_bill(bill_id: int) -> dict:
     return parliament.get_bill(bill_id)
 
 
 # ── Cross-source research ────────────────────────────────────
 
-@app.tool(description="Anti-hallucination check: does the quoted text really appear in the cited source? source='matsne' (+ law or doc_id, optional article/part/as_of_date), 'ecd' (+ decision_document_id, instance_id), 'supreme' (+ case_id, palata), 'constitutional' (+ legal_id), 'echr' (+ itemid). Verdict: exact / close (same passage, wording differs — use matched_text) / partial / not_found (do not attribute). Run it on every quote before putting it in an answer.")
+@app.tool(description="Anti-hallucination check: does the quoted text really appear in the cited source? source='matsne' (+ law or doc_id, optional article/part/as_of_date), 'ecd' (+ decision_document_id, instance_id), 'supreme' (+ case_id, palata), 'constitutional' (+ legal_id), 'echr' (+ itemid), 'pdf' (+ url — Grand Chamber, analytics, parliament files; the page is returned). Verdict: exact / close (same passage, wording differs — use matched_text) / partial / not_found (do not attribute). Run it on every quote before putting it in an answer.")
 def verify_citation(quote: str, source: str, law: str = "", doc_id: int = 0,
                     article: str = "", part: int | None = None, as_of_date: str = "",
                     decision_document_id: int = 0, instance_id: int = 0,
                     case_id: int = 0, palata: int = 1, legal_id: int = 0,
-                    itemid: str = "") -> dict:
+                    itemid: str = "", url: str = "") -> dict:
     return research.verify_citation(
         quote, source, law=law, doc_id=doc_id, article=article, part=part,
         as_of_date=as_of_date, decision_document_id=decision_document_id,
         instance_id=instance_id, case_id=case_id, palata=palata,
-        legal_id=legal_id, itemid=itemid,
+        legal_id=legal_id, itemid=itemid, url=url,
     )
 
 
@@ -353,6 +396,154 @@ def research_article(article: str, law: str = "", doc_id: int = 0,
                      as_of_date: str = "", max_results: int = 5) -> dict:
     return research.research_article(article, law=law, doc_id=doc_id,
                                      as_of_date=as_of_date, max_results=max_results)
+
+
+# ── Procedural deadlines (deadlines.py) ──────────────────────
+
+@app.tool(description="List procedural-deadline types (civil appeal, cassation, private complaint, default-judgment objection, administrative lawsuit/complaint, criminal appeal/cassation, labour disputes, limitation periods) with the law article each period is read from. No periods are stored — they are read live from matsne.")
+def deadline_list_procedures() -> list[dict]:
+    return deadline_calc.list_procedures()
+
+
+@app.tool(description="Live text of the norm that sets a procedural deadline: the period with its quoted sentence, start-rule norms and the counting rules (start day, months, non-working days). Use it before stating any deadline. as_of_date = date of the triggering event (version then in force).")
+def deadline_get_rule(procedure: str, as_of_date: str = "") -> dict:
+    return deadline_calc.get_deadline_rule(procedure, as_of_date)
+
+
+@app.tool(description="Compute the last day of a procedural term from the live norm and live counting/holiday rules. start_date (YYYY-MM-DD or DD/MM/YYYY) is the triggering event (delivery/announcement of the reasoned decision, acquaintance with the act). status: computed | conservative | not_computed (ambiguous norm — no date guessed). extra_holidays: ad-hoc non-working days declared by government (YYYY-MM-DD). ALWAYS relay the warning, the quoted sentence and the URL to the user; the start date and special rules must be verified by a lawyer.")
+def deadline_calculate(procedure: str, start_date: str, as_of_date: str = "",
+                       extra_holidays: list[str] | None = None) -> dict:
+    return deadline_calc.calculate_deadline(procedure, start_date, as_of_date, extra_holidays)
+
+
+@app.tool(description="Compute a period the agent found in another norm (e.g. a special 5-day term) using the live counting rules of a regime: civil_procedure, administrative_procedure, criminal_procedure, general_administrative, civil_code. unit: days, weeks, months, years, working_days. Cite law + article: the norm is fetched and a mismatch with the stated period is flagged. Relay the warning.")
+def deadline_calculate_custom(start_date: str, value: int, unit: str = "days",
+                              regime: str = "civil_procedure", law: str = "", article: str = "",
+                              part: int | None = None, as_of_date: str = "",
+                              extra_holidays: list[str] | None = None) -> dict:
+    return deadline_calc.calculate_custom(start_date, value, unit=unit, regime=regime, law=law,
+                                          article=article, part=part, as_of_date=as_of_date,
+                                          extra_holidays=extra_holidays)
+
+
+@app.tool(description="Public holidays (non-working days) of a year, parsed live from the Labour Code + Orthodox Easter dates, with the source article.")
+def deadline_holidays(year: int, as_of_date: str = "") -> dict:
+    return deadline_calc.holidays(year, as_of_date)
+
+
+# ── PDF documents (pdf_text.py) ──────────────────────────────
+
+@app.tool(description="Extract text from a PDF — supremecourt.ge (Grand Chamber, norms compilation, analytics, decision collections), info.parliament.ge bill files, ecd.court.ge, matsne English PDFs, agency decisions. Converts legacy Georgian fonts (AcadNusx/LitNusx…) to Unicode and reports scanned/image-only pages (no OCR). Large PDFs: page through with offset_chars / max_chars.")
+def pdf_get_text(url: str, max_pages: int = 30, offset_chars: int = 0,
+                 max_chars: int = 50000) -> dict:
+    doc = extract_pdf_text(url, max_pages=max_pages or None)
+    if "error" in doc:
+        return doc
+    text = doc.get("text", "")
+    doc["text"] = text[offset_chars:offset_chars + max_chars] if max_chars else text[offset_chars:]
+    doc["offset_chars"] = offset_chars
+    doc["text_truncated"] = offset_chars + len(doc["text"]) < len(text)
+    return doc
+
+
+@app.tool(description="Find a phrase in a PDF; returns page numbers and surrounding passages. Tolerates line breaks, hyphenation, quote styles and legacy fonts; falls back to fuzzy matching for quotes of 10+ characters.")
+def pdf_search(url: str, query: str, max_results: int = 10) -> dict:
+    return search_pdf(url, query, max_results=max_results)
+
+
+# ── Supreme Court analytical materials ───────────────────────
+
+@app.tool(description="List Supreme Court analytical-material categories with authority levels: practice generalizations, recommendations (civil/admin/criminal/magistrate), important explanations (განმარტებები №1-100), decision collections (digest_*), research, human-rights centre, ECHR translations, international acts, 'Justice and Law' journal.")
+def supreme_practice_categories() -> dict:
+    return supreme_practice.list_categories()
+
+
+@app.tool(description="List the materials (mostly PDFs) of one Supreme Court analytics category, optionally filtered by title text and year. Analytical guidance is authority_level 4 and NOT binding — the Grand Chamber (5) prevails; cite the underlying decision. Read PDFs with pdf_get_text.")
+def supreme_practice_list(category: str, query: str = "", year: int | None = None,
+                          limit: int = 50) -> dict:
+    return supreme_practice.list_materials(category, query=query, year=year, limit=limit)
+
+
+@app.tool(description="Search titles of Supreme Court generalizations, recommendations, explanations, research and ECHR translations (sorted by authority, then year). Pass categories=['journal'] or ['digest_civil'] to search those too.")
+def supreme_practice_search(query: str, categories: list[str] | None = None,
+                            limit: int = 30) -> dict:
+    return supreme_practice.search_materials(query, categories=categories, limit=limit)
+
+
+@app.tool(description="Get an HTML Supreme Court analytics material or a journal issue's table of contents. For PDFs it returns the URL — pass it to pdf_get_text.")
+def supreme_practice_get(url: str, max_chars: int = 20000) -> dict:
+    return supreme_practice.get_material(url, max_chars=max_chars)
+
+
+# ── Administrative bodies (authority_level 1) ────────────────
+
+@app.tool(description="Search decisions of the Ministry of Finance Dispute Resolution Council (2nd-stage tax appeals, 2018→, ~4,700, full text). outcome: 1 upheld, 2 rejected, 3 partly upheld, 4 not considered. Dates YYYY-MM-DD.")
+def tax_dispute_search(query: str = "", page: int = 1, page_size: int = 20, number: str = "",
+                       date_from: str = "", date_to: str = "", outcome: int | None = None) -> dict:
+    return tax_disputes.search(query, page=page, page_size=page_size, number=number,
+                               date_from=date_from, date_to=date_to, outcome=outcome)
+
+
+@app.tool(description="Full text of a MoF Dispute Resolution Council decision: facts, reasoning, cited Tax Code articles, outcome, the dispute chain (Revenue Service → MoF) and a PDF link.")
+def tax_dispute_get(decision_id: str) -> dict:
+    return tax_disputes.get_decision(decision_id)
+
+
+@app.tool(description="Search Revenue Service dispute-council orders (1st-stage tax disputes, 2018→, ~6,700, full text). Same filters as tax_dispute_search.")
+def rs_dispute_search(query: str = "", page: int = 1, page_size: int = 20, number: str = "",
+                      date_from: str = "", date_to: str = "", outcome: int | None = None) -> dict:
+    return rs_disputes.search(query, page=page, page_size=page_size, number=number,
+                              date_from=date_from, date_to=date_to, outcome=outcome)
+
+
+@app.tool(description="Full text of a Revenue Service dispute-council order.")
+def rs_dispute_get(decision_id: str) -> dict:
+    return rs_disputes.get_decision(decision_id)
+
+
+@app.tool(description="Search tax guidance: doc_type public_decision (Minister of Finance public rulings), situational_guide (Revenue Service situational guides), tax_court_decision (tax court decisions curated by RS), all_disputes. Advance/individual rulings are not public.")
+def tax_guidance_search(query: str = "", doc_type: str = "public_decision", page: int = 1,
+                        page_size: int = 20) -> dict:
+    return tax_guidance.search(query, page=page, page_size=page_size, doc_type=doc_type)
+
+
+@app.tool(description="Full text of a tax-guidance document (public ruling, situational guide, tax court decision) with attachments.")
+def tax_guidance_get(document_id: str) -> dict:
+    return tax_guidance.get_decision(document_id)
+
+
+@app.tool(description="Decisions of the Competition and Consumer Protection Agency (gcca.gov.ge). category: dominance, agreements, state_bodies, unfair_competition, mergers, state_aid, consumer, market_monitoring, antidumping. query matches title + summary. Decisions are PDFs (pdf_get_text).")
+def competition_search(query: str = "", category: str | None = None, page: int = 1,
+                       page_size: int = 20) -> dict:
+    return competition.search(query, page=page, category=category, page_size=page_size)
+
+
+@app.tool(description="Public Defender (ombudsman) recommendations and proposals — advisory, NOT binding. section: recommendations, proposals, general_proposals. A query crawls up to max_pages listing pages.")
+def ombudsman_search(query: str = "", section: str | None = None, page: int = 1,
+                     max_pages: int = 30) -> dict:
+    return ombudsman.search(query, page=page, section=section, max_pages=max_pages)
+
+
+@app.tool(description="Text and attachments of one Public Defender recommendation/proposal (URL or slug from ombudsman_search).")
+def ombudsman_get(url: str) -> dict:
+    return ombudsman.get_decision(url)
+
+
+@app.tool(description="Public-procurement Dispute Resolution Council complaints and decisions (2011→, 50 per page). query: complaint no. (DIS…), tender no. (NAT…/SPA…) or an organisation name. status: 40 inadmissible, 50 pending, 60 upheld, 70 rejected, 80 partly upheld, 90 withdrawn, 95 not considered. Dates DD.MM.YYYY or YYYY-MM-DD.")
+def procurement_dispute_search(query: str = "", page: int = 1, status: int | None = None,
+                               date_from: str = "", date_to: str = "") -> dict:
+    return procurement.search(query, page=page, status=status, date_from=date_from, date_to=date_to)
+
+
+@app.tool(description="One procurement complaint with the council's decision documents (PDF links) and the tender link. decision_id as returned by procurement_dispute_search.")
+def procurement_dispute_get(decision_id: str) -> dict:
+    return procurement.get_decision(decision_id)
+
+
+@app.tool(description="Bar Association ethics-commission decisions (anonymised PDFs). category: procedural_refusal, procedural_termination, review_warning, review_recommendation, review_acquittal, review_termination, plenary_warning, plenary_recommendation, plenary_acquittal, plenary_suspension, plenary_disbarment, plenary_termination. query matches case numbers only.")
+def bar_ethics_search(category: str | None = None, query: str = "", page: int = 1,
+                      max_pages: int = 3) -> dict:
+    return bar_ethics.search(query, page=page, category=category, max_pages=max_pages)
 
 
 # ── Prompts (legal workflows) ────────────────────────────────
@@ -366,6 +557,8 @@ _RULES = (
     "> 4 Supreme Court > 3 appeals > 2 first instance. "
     "(5) Run verify_citation on every quote before using it; never quote from memory. "
     "(6) If a source is unavailable, say so instead of guessing. "
+    "(7) Never state a procedural deadline from memory; use the deadline_* tools and warn "
+    "the user that the start date and special rules must be checked by a lawyer. "
     "Answer in the user's language (Georgian by default)."
 )
 
@@ -381,8 +574,12 @@ def legal_memo(question: str, facts: str = "", facts_date: str = "") -> str:
         "2) read each article with matsne_get_article (as_of_date = date of the facts); "
         "3) research_article for each key article, then read the strongest decisions "
         "(constitutional_get_act, supreme_get_case, court_get_decision) and check "
-        "supreme_grand_chamber; 4) check parliament_search_bills for pending changes; "
-        "5) verify every quote with verify_citation.\n\n"
+        "supreme_grand_chamber and supreme_practice_search (generalizations, "
+        "recommendations, explanations); for tax/competition/procurement matters also "
+        "the administrative bodies (tax_dispute_search, …); 4) check "
+        "parliament_search_bills for pending changes; 5) verify every quote with "
+        "verify_citation; 6) if a procedural step is involved, deadline_calculate — "
+        "and relay its warning.\n\n"
         "Structure: Question · Short answer · Applicable law · Court practice (by authority) · "
         "Analysis · Risks and open points · Sources (URL for each).\n\n" + _RULES
     )
@@ -397,7 +594,8 @@ def case_analysis(facts: str, facts_date: str = "", side: str = "") -> str:
         "For each legal issue: Issue → Rule (matsne_get_article, correct version) → "
         "Application (compare with research_article practice; distinguish unfavourable decisions) → "
         "Conclusion with likelihood. Finish with procedural notes: competent court, "
-        "deadlines and evidence — cite the procedural code articles, do not state deadlines from memory.\n\n"
+        "deadlines (deadline_calculate / deadline_get_rule — never from memory; relay the "
+        "warning) and evidence.\n\n"
         + _RULES
     )
 

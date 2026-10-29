@@ -11,6 +11,12 @@ The site is an ExtJS app; its REST endpoints (reverse-engineered 2026-10-29
 from app.js + network traffic) return JSON and work without a browser:
 
   GET /law/1/bill?searchItem=&billTypeId=&page=&start=&limit=  — bill search
+      searchItem = bill name OR package name OR a sibling bill's name; billTypeId
+      is IGNORED when searchItem is set. Advanced-search fields (app.js
+      SearchBill form) DO combine with billTypeId server-side: billName,
+      packageName, billDescription (substring), registrationNumber,
+      documentNumber, initiator, author, registrationDate1/2 (d-m-Y) …
+      ExtJS `filter` JSON (property billType.id / billTypeId) is ignored.
   GET /law/1/bill/{id}                                         — one bill
   GET /law/1/billPackage/{package_id}/bill                     — bills in a package
   GET /law/1/bill/{id}/billReview                              — stages (hearings)
@@ -29,7 +35,9 @@ Usage:
 """
 
 import json
+import threading
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 
 from court_api import _BaseAPI
 
@@ -83,7 +91,7 @@ class ParliamentAPI(_BaseAPI):
         }
 
     def search_bills(self, query: str = "", bill_type_id: int = None,
-                     page: int = 1, limit: int = 20) -> dict:
+                     page: int = 1, limit: int = 20, scan_related=None) -> dict:
         """
         Search bills, newest first.
 
@@ -92,14 +100,21 @@ class ParliamentAPI(_BaseAPI):
             bill_type_id: Filter by type — 1 = law draft, 11 = organic law,
                 12 = constitutional law, 2 = parliament resolution (see bill_types())
             page / limit: Pagination (1-indexed page; limit ≤ 50)
+            scan_related: only with query + bill_type_id — whether to also collect
+                "related" bills (query only in the package / a sibling bill, not in
+                the bill's own name). None (default) = only when the requested page
+                runs past the name matches; True = always (exact total, slower);
+                False = never.
 
         Returns:
-            {"total": int, "bills": [...]}
+            {"total": int|None, "bills": [... each with name_match ...]}
+            With query + bill_type_id also: name_matches, related_scanned,
+            text_matches, scanned, note.
         """
         # "id" sorts as a string server-side; the package date sorts correctly
         sort = json.dumps([{"property": "billPackage.registrationDate", "direction": "DESC"}])
         if query and bill_type_id:
-            return self._search_filtered(query, bill_type_id, page, limit, sort)
+            return self._search_filtered(query, bill_type_id, page, limit, sort, scan_related)
         limit = min(limit, self.PAGE_MAX)
         params = {"searchItem": query, "page": page,
                   "start": (page - 1) * limit, "limit": limit, "sort": sort}
@@ -119,30 +134,102 @@ class ParliamentAPI(_BaseAPI):
         bill["name_match"] = bool(query) and query.lower() in (bill.get("name") or "").lower()
         return bill
 
+    # Parallel page fetches: the server spends ~0.1 s per returned row (a 50-row
+    # page takes 3–7 s) but serves concurrent requests in parallel — measured
+    # 8 × 50-row pages: 38.5 s sequential, 11.1 s with 4 workers, 7.3 s with 8.
+    SCAN_WORKERS = 6
+
+    def __init__(self, rate_limit: float = 0.3):
+        super().__init__(rate_limit)
+        self._rate_lock = threading.Lock()
+
+    def _wait_rate_limit(self):
+        # thread-safe variant of _BaseAPI's: request STARTS stay ≥ rate_limit apart
+        with self._rate_lock:
+            super()._wait_rate_limit()
+
     def _search_filtered(self, query: str, bill_type_id: int, page: int, limit: int,
-                         sort: str, scan_pages: int = 10) -> dict:
-        """The server ignores billTypeId when searchItem is set — filter client-side
-        over the newest scan_pages × PAGE_MAX text matches; bills whose own name
-        contains the query come first."""
-        matched, total = [], 0
-        for p in range(1, scan_pages + 1):
-            res = self._get_json("/law/1/bill", {"searchItem": query, "page": p,
-                                                 "start": (p - 1) * self.PAGE_MAX,
-                                                 "limit": self.PAGE_MAX, "sort": sort})
-            if "error" in res:
-                return res
-            total = res.get("total", 0)
-            matched += [self._with_name_match(self._normalize_bill(i), query)
-                        for i in res.get("list", [])
-                        if (i.get("billType") or {}).get("id") == bill_type_id]
-            if p * self.PAGE_MAX >= total:
-                break
-        scanned = min(total, p * self.PAGE_MAX)
-        matched.sort(key=lambda b: not b["name_match"])  # stable: keeps newest-first within groups
-        return {"total": len(matched) if scanned >= total else None,
+                         sort: str, scan_related=None, scan_pages: int = 10) -> dict:
+        """
+        Type-filtered text search. The server ignores billTypeId together with
+        searchItem, but honours it with the advanced-search field billName
+        (substring of the bill's own name — exactly the name_match set):
+
+          1. name matches  — GET /law/1/bill?billName=q&billTypeId=t (server-side,
+             exact, one request per page)
+          2. related bills — searchItem also hits bills whose package / sibling bill
+             mentions q; those can only be type-filtered client-side, so the newest
+             scan_pages × PAGE_MAX searchItem hits are fetched in parallel batches,
+             stopping early once the requested page is filled (unless exhaustive).
+
+        Order: name matches (newest first), then related bills (newest first).
+        """
+        limit = min(limit, self.PAGE_MAX)
+        start, end = (page - 1) * limit, page * limit
+        res = self._get_json("/law/1/bill", {"billName": query, "billTypeId": bill_type_id,
+                                             "page": page, "start": start,
+                                             "limit": limit, "sort": sort})
+        if "error" in res:
+            return res
+        name_total = res.get("total", 0)
+        bills = [self._with_name_match(self._normalize_bill(i), query) for i in res.get("list", [])]
+        for b in bills:
+            b["name_match"] = True  # server matched the name (normalization-safe)
+
+        exhaustive = scan_related is True
+        if scan_related is False or (scan_related is None and end <= name_total):
+            return {"total": None if scan_related is None else name_total,
+                    "name_matches": name_total, "related_scanned": False,
+                    "note": "name matches only (server-side billName + billTypeId); bills "
+                            "related to the query only via their package are listed after "
+                            "them — request a later page or scan_related=True",
+                    "bills": bills}
+
+        want = end - name_total  # related bills needed to fill this page
+        related, total, scanned = [], 0, 0
+
+        def fetch(p):
+            return self._get_json("/law/1/bill", {"searchItem": query, "page": p,
+                                                  "start": (p - 1) * self.PAGE_MAX,
+                                                  "limit": self.PAGE_MAX, "sort": sort})
+
+        def take(page_res):
+            nonlocal total, scanned
+            total = page_res.get("total", total)
+            rows = page_res.get("list", [])
+            scanned += len(rows)
+            for i in rows:
+                if (i.get("billType") or {}).get("id") != bill_type_id:
+                    continue
+                b = self._with_name_match(self._normalize_bill(i), query)
+                if not b["name_match"]:
+                    related.append(b)
+
+        first = fetch(1)
+        if "error" in first:
+            return first
+        take(first)
+        last = min(scan_pages, -(-total // self.PAGE_MAX))
+        p = 2
+        with ThreadPoolExecutor(max_workers=self.SCAN_WORKERS) as pool:
+            while p <= last and (exhaustive or len(related) < want):
+                # exhaustive: everything at once; otherwise one batch at a time so
+                # we can stop as soon as the requested page is filled
+                step = last if exhaustive else self.SCAN_WORKERS
+                batch = list(range(p, min(p + step, last + 1)))
+                for page_res in pool.map(fetch, batch):  # map keeps page order
+                    if "error" in page_res:
+                        return page_res
+                    take(page_res)
+                p = batch[-1] + 1
+        complete = scanned >= total
+        r_start, r_end = max(0, start - name_total), max(0, want)
+        return {"total": name_total + len(related) if complete else None,
+                "name_matches": name_total, "related_scanned": True,
                 "text_matches": total, "scanned": scanned,
-                "note": f"type filter applied client-side over the {scanned} newest text matches",
-                "bills": matched[(page - 1) * limit: page * limit]}
+                "note": (f"name matches server-side; related bills filtered client-side over "
+                         f"the {scanned} newest of {total} text matches"),
+                "bills": (bills if start < name_total else []) + related[r_start:r_end]}
 
     def bill_types(self) -> dict:
         """All bill types: {"total", "list": [{id, name}]}."""
@@ -232,6 +319,20 @@ if __name__ == "__main__":
     print(f"  Total: {r.get('total')}")
     for b in r.get("bills", []):
         print(f"  ID:{b['id']} | {b['type']} | {b['name'][:60]}")
+
+    import time
+    print("\n🔎 Law drafts (type 1) named 'საგადასახადო კოდექს…' (server-side filter):")
+    t0 = time.time()
+    r = p.search_bills("საგადასახადო კოდექს", bill_type_id=1, limit=3)
+    print(f"  Name matches: {r.get('name_matches')} ({time.time() - t0:.1f}s)")
+    for b in r.get("bills", []):
+        print(f"  ID:{b['id']} | {b['registration_date']} | name_match={b['name_match']} | {b['name'][:50]}")
+
+    print("\n🔎 Type 1 + 'შრომის კოდექს' incl. related bills (parallel scan):")
+    t0 = time.time()
+    r = p.search_bills("შრომის კოდექს", bill_type_id=1, limit=20, scan_related=True)
+    print(f"  Total: {r.get('total')} (name {r.get('name_matches')}, scanned "
+          f"{r.get('scanned')}/{r.get('text_matches')}) in {time.time() - t0:.1f}s")
 
     print("\n📑 Bill 8235 with stages and files:")
     bill = p.get_bill(8235)
