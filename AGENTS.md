@@ -200,11 +200,11 @@ run `$env:PYTHONIOENCODING="utf-8"; python matsne_api.py`.
 ### MCP Server (`mcp_server.py`)
 
 - Imports every module above — wrappers untouched, MCP is a pure transport layer
-- 70 tools: 14 `matsne_*`, 5 `court_*`, 4 `supreme_*`, 2 `constitutional_*`, 2 `echr_*`,
+- 78 tools: 14 `matsne_*`, 5 `court_*`, 4 `supreme_*`, 2 `constitutional_*`, 2 `echr_*`,
   2 `parliament_*`, `verify_citation`, `research_article`, 5 `deadline_*`, 3 `fee_*`, 2 `pdf_*`,
   4 `supreme_practice_*`, 13 administrative-body tools (`tax_dispute_*`, `rs_dispute_*`,
   `tax_guidance_*`, `competition_search`, `ombudsman_*`, `procurement_dispute_*`, `bar_ethics_search`),
-  13 `registry_*`, 4 `companyinfo_*`, 4 `geostat_*` (78 total)
+  13 `registry_*`, 4 `companyinfo_*`, 4 `geostat_*`
 - 3 prompts: `legal_memo`, `case_analysis` (IRAC), `law_change_review` — they share `_RULES`
   (sources with URLs, as_of_date, check_status, authority order, verify every quote)
 - 6 resources: `matsne://document/{id}`, `matsne://today`, `court://decision/{id}/{instance}`,

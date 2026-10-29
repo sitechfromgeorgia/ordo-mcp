@@ -77,7 +77,7 @@ api.today_documents()  # → [{id, title, date}, ...]
 
 ### MCP Server
 
-The repo includes an MCP server (`mcp_server.py`) that exposes the matsne API as 14 tools + 2 resources (30 tools / 3 prompts in total — see the other sections):
+The repo includes an MCP server (`mcp_server.py`) that exposes the matsne API as 14 tools + 2 resources (78 tools, 6 resources and 3 prompts in total across all sources — see the other sections):
 
 **Tools:**
 - `matsne_suggest` — keyword autocomplete
