@@ -121,12 +121,13 @@ Please walk me through each step and check as we go.
 | `verify_citation` | ამოწმებს, მართლა წერია თუ არა ციტატა მითითებულ კანონში/გადაწყვეტილებაში (ჰალუცინაციის წინააღმდეგ) |
 | `research_article` | მუხლი + მისი სასამართლო პრაქტიკა ერთი ზარით, ავტორიტეტის მიხედვით |
 
-### 📚 უზენაესის ანალიტიკა, ვადები, PDF (ახალი)
+### 📚 უზენაესის ანალიტიკა, ვადები, ბაჟი, PDF (ახალი)
 
 | Tool | რას აკეთებს |
 |---|---|
 | `supreme_practice_search` / `_list` / `_get` / `_categories` | პრაქტიკის განზოგადებები, რეკომენდაციები, მნიშვნელოვანი განმარტებები, გადაწყვეტილებათა კრებულები, ჟურნალი |
 | `deadline_calculate` / `deadline_get_rule` / `deadline_calculate_custom` / `deadline_list_procedures` / `deadline_holidays` | საპროცესო ვადა ცოცხალი ნორმიდან (ციტატით, უქმე დღეებით, გაფრთხილებით) — მეხსიერებიდან არასდროს |
+| `fee_calculate` / `fee_get_rule` / `fee_list_types` | სახელმწიფო ბაჟი სსსკ 39-ე მუხლის ცოცხალი ტექსტიდან (%, მინიმუმი, ზედა ზღვარი ფიზიკური/იურიდიული პირისთვის, მაგისტრატი, მორიგება) — გაფრთხილებით |
 | `pdf_get_text` / `pdf_search` | PDF-ის ტექსტი და ძებნა (ძველი AcadNusx/LitNusx ფონტების ავტომატური გასწორებით) |
 | `court_search_article` | საერთო სასამართლოების გადაწყვეტილებები კონკრეტულ მუხლზე (ecd: 2018–2020) |
 
@@ -290,12 +291,13 @@ so agents weigh precedent correctly.
 | `verify_citation` | Checks a quote really appears in the cited law/decision (anti-hallucination) |
 | `research_article` | An article + its court practice in one call, by authority |
 
-### 📚 Supreme Court analytics, deadlines, PDFs (new)
+### 📚 Supreme Court analytics, deadlines, state fees, PDFs (new)
 
 | Tool | Purpose |
 |---|---|
 | `supreme_practice_search` / `_list` / `_get` / `_categories` | Practice generalizations, recommendations, important explanations, decision collections, journal |
 | `deadline_calculate` / `deadline_get_rule` / `deadline_calculate_custom` / `deadline_list_procedures` / `deadline_holidays` | Procedural deadlines from the live norm (quoted, holiday-aware, with a warning) — never from memory |
+| `fee_calculate` / `fee_get_rule` / `fee_list_types` | Court state fee from the live Civil Procedure Code art. 39 (percent, minimum, ceilings for individuals/legal entities, magistrate, settlement) — with a warning |
 | `pdf_get_text` / `pdf_search` | PDF text and search (legacy AcadNusx/LitNusx fonts repaired automatically) |
 | `court_search_article` | Common-court decisions citing one article (ecd: 2018–2020) |
 

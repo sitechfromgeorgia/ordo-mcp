@@ -14,7 +14,8 @@ Sources:
   - administrative bodies - MoF tax dispute council, Revenue Service,
                        competition agency, Public Defender, procurement
                        disputes, Bar ethics commission
-Plus procedural-deadline calculation from live norms (deadlines.py) and
+Plus procedural-deadline and court state-fee calculation from live norms
+(deadlines.py, state_fee.py) and
 PDF text extraction with legacy Georgian font repair (pdf_text.py).
 Plus cross-source research (research.py): citation verification and
 article-level practice search, and MCP prompts for common legal workflows.
@@ -37,6 +38,7 @@ from agencies_api import (TaxDisputeCouncilAPI, RevenueServiceDisputeAPI, TaxGui
                           CompetitionAgencyAPI, PublicDefenderAPI, ProcurementDisputeAPI,
                           BarEthicsAPI)
 from deadlines import DeadlineCalculator
+from state_fee import FeeCalculator
 from pdf_text import extract_pdf_text, search_pdf
 
 matsne = MatsneAPI()
@@ -55,6 +57,7 @@ ombudsman = PublicDefenderAPI()
 procurement = ProcurementDisputeAPI()
 bar_ethics = BarEthicsAPI()
 deadline_calc = DeadlineCalculator()
+fee_calc = FeeCalculator(deadlines=deadline_calc)
 
 app = FastMCP(
     "matsne-ge",
@@ -80,7 +83,7 @@ app = FastMCP(
         "article's court practice in one call; parliament_* tools show pending "
         "bills that may change the law soon. Deadlines: NEVER state a procedural "
         "deadline from memory — use deadline_calculate / deadline_get_rule and "
-        "always relay their warning, quoted norm and URL to the user. PDFs "
+        "always relay their warning, quoted norm and URL to the user. The same applies to court state fees (სახელმწიფო ბაჟი): use fee_calculate / fee_get_rule, never amounts from memory. PDFs "
         "(Grand Chamber, Supreme Court analytics, parliament files, agency "
         "decisions) are read with pdf_get_text / pdf_search. Administrative-body "
         "decisions (tax_*, rs_*, competition_*, ombudsman_*, procurement_*, "
@@ -431,6 +434,26 @@ def deadline_holidays(year: int, as_of_date: str = "") -> dict:
     return deadline_calc.holidays(year, as_of_date)
 
 
+# ── Court state fee (state_fee.py) ───────────────────────────
+
+@app.tool(description="List court state-fee (სახელმწიფო ბაჟი) types — property/non-property claim, appeal, cassation, private complaint, claim security, reopening, uncontested proceedings, bill of exchange, arbitration and mediation applications — with the Civil Procedure Code art. 39 sub-point each amount is read from. No amounts are stored — they are read live from matsne. Administrative-court claims use the same types (CPC 38(ე)).")
+def fee_list_types() -> list[dict]:
+    return fee_calc.list_fee_types()
+
+
+@app.tool(description="Live text of the norm that sets a court state fee: the quoted CPC art. 39(1) sub-point, extracted percentage + minimum or fixed amount, the per-instance ceilings for individuals / legal entities (art. 39(3)) and the magistrate rule (art. 39(2)). as_of_date = filing date (version then in force).")
+def fee_get_rule(fee_type: str, as_of_date: str = "") -> dict:
+    return fee_calc.get_fee_rule(fee_type, as_of_date)
+
+
+@app.tool(description="Compute a court state fee in GEL from the live norm. claim_value (GEL) is required for percentage types (property claim/appeal/cassation, court-mediation claim) — determine it per CPC art. 40–41. party_type 'individual' | 'legal_entity' selects the art. 39(3) ceiling (status needs_input with both amounts if it matters and is missing). magistrate=true halves the fee (art. 39(2)). settlement: 'at_main_hearing' (halved) | 'before_main_hearing' (waived) for withdrawal, admission or settlement (art. 49). administrative=true adds the APC art. 9 exemptions. status: computed | conservative | needs_input | not_computed. Exemptions (CPC 46–48, special laws) are NOT applied automatically — check related_norms. ALWAYS relay the warning, the quoted sub-point and the URL.")
+def fee_calculate(fee_type: str, claim_value: float | None = None, party_type: str = "",
+                  magistrate: bool = False, filing_date: str = "", settlement: str = "",
+                  administrative: bool = False) -> dict:
+    return fee_calc.calculate_fee(fee_type, claim_value, party_type, magistrate, filing_date,
+                                  settlement, administrative)
+
+
 # ── PDF documents (pdf_text.py) ──────────────────────────────
 
 @app.tool(description="Extract text from a PDF — supremecourt.ge (Grand Chamber, norms compilation, analytics, decision collections), info.parliament.ge bill files, ecd.court.ge, matsne English PDFs, agency decisions. Converts legacy Georgian fonts (AcadNusx/LitNusx…) to Unicode and reports scanned/image-only pages (no OCR). Large PDFs: page through with offset_chars / max_chars.")
@@ -559,6 +582,7 @@ _RULES = (
     "(6) If a source is unavailable, say so instead of guessing. "
     "(7) Never state a procedural deadline from memory; use the deadline_* tools and warn "
     "the user that the start date and special rules must be checked by a lawyer. "
+    "(8) The same for court state fees: fee_calculate / fee_get_rule, never from memory. "
     "Answer in the user's language (Georgian by default)."
 )
 
@@ -595,7 +619,7 @@ def case_analysis(facts: str, facts_date: str = "", side: str = "") -> str:
         "Application (compare with research_article practice; distinguish unfavourable decisions) → "
         "Conclusion with likelihood. Finish with procedural notes: competent court, "
         "deadlines (deadline_calculate / deadline_get_rule — never from memory; relay the "
-        "warning) and evidence.\n\n"
+        "warning), state fee (fee_calculate) and evidence.\n\n"
         + _RULES
     )
 

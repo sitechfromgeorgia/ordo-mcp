@@ -1,7 +1,7 @@
 [project]
 name = "matsne-mcp"
 version = "0.3.0"
-description = "MCP server for Georgian legal research: legislation with versions, all courts, ECHR, parliament bills, Supreme Court analytics, administrative bodies, procedural deadlines, PDFs and citation verification"
+description = "MCP server for Georgian legal research: legislation with versions, all courts, ECHR, parliament bills, Supreme Court analytics, administrative bodies, procedural deadlines, court state fees, PDFs and citation verification"
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.0.0,<2.0.0",

@@ -19,6 +19,7 @@ agents — keep tool descriptions self-explanatory and outputs citeable):
 - **`agencies_api.py`** — administrative bodies: MoF tax dispute council, Revenue Service disputes
   + guidance (InfoHub API), competition agency, Public Defender, procurement disputes, Bar ethics
 - **`deadlines.py`** — `DeadlineCalculator`: procedural deadlines computed from the LIVE norms
+- **`state_fee.py`** — `FeeCalculator`: court state fees (სახელმწიფო ბაჟი) from the LIVE CPC art. 39
 - **`pdf_text.py`** — PDF text extraction/search with legacy Georgian font repair
 
 **Files:** the modules above, `SKILL.md` (reference docs),
@@ -46,6 +47,7 @@ python research.py                          # live test: verify_citation + resea
 python supreme_practice_api.py              # live test: Supreme Court analytics (~30 requests)
 python agencies_api.py                      # live test: all administrative bodies
 python deadlines.py                         # live test: deadline calculations
+python state_fee.py                         # live test: state-fee calculations
 uv run python pdf_text.py                   # live test: PDF extraction (needs pypdfium2)
 uv run mcp_server.py                        # start MCP server (stdio transport)
 uv run python -c "from mcp_server import *" # verify imports
@@ -145,6 +147,16 @@ run `$env:PYTHONIOENCODING="utf-8"; python matsne_api.py`.
   article, found by heading; Orthodox Easter computed) are also read live and regex-checked
 - Every result carries `warning` (ka/en + agent instruction) that the agent must relay
 
+### State fee (`state_fee.py`)
+
+- **No amounts stored.** `FEE_TYPES` maps a fee type to a CPC art. 39(1) sub-point letter + a
+  keyword that must appear in it (renumbering tripwire); percentage/minimum/fixed amounts, the
+  per-instance ceilings for individuals/legal entities (39(3)), the magistrate halving (39(2)) and
+  the settlement reductions (49(1)–(2)) are read live and regex-checked. Superscript sub-points
+  (`ა³`, `ე¹`) are keyed as `ა3`, `ე1`; zero-width spaces are stripped
+- Reuses `DeadlineCalculator._article` (shared page cache); exemptions (CPC 46–48, APC 9) are
+  returned as `related_norms`, never applied automatically. Warning on every result
+
 ### PDFs (`pdf_text.py`)
 
 - pypdfium2 (best Georgian layout, fastest); `\ufffe` soft hyphens stripped; legacy fonts
@@ -155,8 +167,8 @@ run `$env:PYTHONIOENCODING="utf-8"; python matsne_api.py`.
 ### MCP Server (`mcp_server.py`)
 
 - Imports every module above — wrappers untouched, MCP is a pure transport layer
-- 54 tools: 14 `matsne_*`, 5 `court_*`, 4 `supreme_*`, 2 `constitutional_*`, 2 `echr_*`,
-  2 `parliament_*`, `verify_citation`, `research_article`, 5 `deadline_*`, 2 `pdf_*`,
+- 57 tools: 14 `matsne_*`, 5 `court_*`, 4 `supreme_*`, 2 `constitutional_*`, 2 `echr_*`,
+  2 `parliament_*`, `verify_citation`, `research_article`, 5 `deadline_*`, 3 `fee_*`, 2 `pdf_*`,
   4 `supreme_practice_*`, 13 administrative-body tools (`tax_dispute_*`, `rs_dispute_*`,
   `tax_guidance_*`, `competition_search`, `ombudsman_*`, `procurement_dispute_*`, `bar_ethics_search`)
 - 3 prompts: `legal_memo`, `case_analysis` (IRAC), `law_change_review` — they share `_RULES`

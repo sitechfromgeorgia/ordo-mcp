@@ -582,6 +582,20 @@ criminal appeal/cassation/restoration motion, labour dismissal claims, civil lim
 Known limits: start-date choice, suspension (CPC 62), ad-hoc government holidays (pass
 `extra_holidays`), GAC month periods (`conservative`), Saturday/Sunday assumed as rest days.
 
+# Court State Fee (`state_fee.py`)
+
+`FeeCalculator().calculate_fee(fee_type, claim_value=None, party_type="", magistrate=False,
+filing_date="", settlement="", administrative=False)` → `status` (computed / conservative /
+needs_input / not_computed), `amount_gel`, `steps`, `quoted_subpoint`, `rule`, `ceilings`, `url`,
+`version_date`, `notes`, `related_norms` (CPC 40, 41, 46–49, APC 9), `warning`.
+26 fee types (`list_fee_types()`) read from CPC art. 39(1): property claim / appeal / cassation
+(percent + minimum, ceiling by party type and instance from 39(3)), non-property, private complaint,
+claim security, reopening, annulment, lost case, bill of exchange, uncontested proceedings,
+entrepreneurs / squeeze-out, arbitration and mediation applications. `get_fee_rule()` = the norm
+only. `settlement`: `at_main_hearing` (half, 49(1)) / `before_main_hearing` (waived, 49(2)).
+Known limits: claim value is the user's input (CPC 40–41), exemptions are not applied
+automatically, magistrate + ceiling order is ambiguous (higher amount → `conservative`).
+
 # PDF Text (`pdf_text.py`)
 
 `extract_pdf_text(url_or_bytes, max_pages=None, include_pages=False)` → `text, pages, method
