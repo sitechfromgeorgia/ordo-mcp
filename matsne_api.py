@@ -210,9 +210,12 @@ class MatsneAPI:
         docs = []
         html = data.get("documents_list", "")
 
-        # Try panel-based structure (used with query search)
-        if '<div class="panel' in html:
-            panels = re.split(r'<div class="panel panel-success document-search-result-item">', html)
+        # Try panel-based structure (used with query search).
+        # The item class suffix is not stable — matsne switched "panel-success" to
+        # "panel-info" (2026-10), which made the old exact-class split return a silent
+        # zero. Match the item class only, never the colour suffix.
+        if 'document-search-result-item' in html and '<div class="panel' in html:
+            panels = re.split(r'<div class="panel[^"]*document-search-result-item">', html)
             for panel in panels[1:]:
                 doc = self._parse_panel(panel)
                 if doc:
