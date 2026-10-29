@@ -21,7 +21,7 @@
 > **Non-technical?** Just copy the box below, paste it to Claude or any AI assistant, and it will set up everything for you — download, install, configure, and test.
 
 <pre>
-I want to use Ordo — the Georgian legal research MCP server — from https://github.com/sitechfromgeorgia/matsne-gov-ge-mcp
+I want to use Ordo — the Georgian legal research MCP server — from https://github.com/sitechfromgeorgia/ordo-mcp
 
 Please help me set it up. Here's what I need you to do:
 
@@ -30,7 +30,7 @@ Please help me set it up. Here's what I need you to do:
    - Windows (PowerShell): `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"`
    - Mac/Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 3. Download the project:
-   - If git is installed: `git clone https://github.com/sitechfromgeorgia/matsne-gov-ge-mcp`
+   - If git is installed: `git clone https://github.com/sitechfromgeorgia/ordo-mcp`
    - Otherwise: download the ZIP from the GitHub page and extract it
 4. Navigate to the project folder and run: `uv run mcp_server.py`
 5. Tell me the full folder path so I can configure Claude Desktop
@@ -187,8 +187,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 **Git-ით:**
 ```sh
-git clone https://github.com/sitechfromgeorgia/matsne-gov-ge-mcp
-cd matsne-gov-ge-mcp
+git clone https://github.com/sitechfromgeorgia/ordo-mcp
+cd ordo-mcp
 ```
 
 **ZIP-ით:** GitHub-ზე → `Code` → `Download ZIP` → გახსენით
@@ -210,7 +210,7 @@ uv run mcp_server.py
   "mcpServers": {
     "ordo": {
       "command": "uv",
-      "args": ["--directory", "C:\\Users\\თქვენი_სახელი\\matsne-gov-ge-mcp", "run", "mcp_server.py"]
+      "args": ["--directory", "C:\\Users\\თქვენი_სახელი\\ordo-mcp", "run", "mcp_server.py"]
     }
   }
 }
@@ -352,8 +352,8 @@ Open (no-CAPTCHA) sources only; search by ID code, personal number, cadastral co
 
 ```sh
 pip install uv  # or install from https://docs.astral.sh/uv/
-git clone https://github.com/sitechfromgeorgia/matsne-gov-ge-mcp
-cd matsne-gov-ge-mcp
+git clone https://github.com/sitechfromgeorgia/ordo-mcp
+cd ordo-mcp
 uv run mcp_server.py
 ```
 
@@ -364,7 +364,7 @@ Then add to Claude Desktop:
   "mcpServers": {
     "ordo": {
       "command": "uv",
-      "args": ["--directory", "/path/to/matsne-gov-ge-mcp", "run", "mcp_server.py"]
+      "args": ["--directory", "/path/to/ordo-mcp", "run", "mcp_server.py"]
     }
   }
 }

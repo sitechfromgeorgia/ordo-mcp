@@ -37,7 +37,7 @@ agents — keep tool descriptions self-explanatory and outputs citeable):
   AGPL libraries such as pymupdf are out).
 - **MCP:** `mcp>=1.0.0,<2.0.0` — the `<2.0.0` pin is required: mcp 2.x removed `mcp.server.fastmcp`.
 - **No tests, no CI/CD** — verify changes by running each wrapper's `__main__` live test (hits the real internet; HUDOC rate-limits if run repeatedly).
-- **Git:** remote `https://github.com/sitechfromgeorgia/matsne-gov-ge-mcp.git`, branch `master`. Author identity `Sitech From Georgia <sitechfromgeorgia@example.com>` is set in repo-local config. `docs/` and `index.html` are unrelated untracked scratch files — stage files explicitly, never `git add -A`.
+- **Git:** remote `https://github.com/sitechfromgeorgia/ordo-mcp.git`, branch `master`. Author identity `Sitech From Georgia <sitechfromgeorgia@example.com>` is set in repo-local config. `docs/` and `index.html` are unrelated untracked scratch files — stage files explicitly, never `git add -A`.
 
 ## Commands
 
