@@ -35,6 +35,7 @@ Usage:
 """
 
 import json
+import os
 import threading
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
@@ -47,6 +48,37 @@ class ParliamentAPI(_BaseAPI):
 
     BASE = "https://info.parliament.ge"
     PAGE_MAX = 50  # larger "limit" values return an empty body
+
+    # info.parliament.ge answers HTTP 403 to datacenter IPs (WAF), while the same request from a
+    # Georgian residential IP returns 200. Callers that have such an egress can expose it as an
+    # HTTP proxy; we then send ONLY this origin's traffic through it. Resolution order:
+    #   1. env ORDO_PARLIAMENT_PROXY        e.g. http://127.0.0.1:8080
+    #   2. ~/.config/ordo/egress.json       {"parliament_proxy": "http://127.0.0.1:8080"}
+    # Unset → plain direct requests (current behaviour, 403 included).
+    PROXY_ENV = "ORDO_PARLIAMENT_PROXY"
+
+    def _parliament_proxy(self) -> str:
+        proxy = os.environ.get(self.PROXY_ENV, "").strip()
+        if proxy:
+            return proxy
+        cfg_path = os.path.join(os.path.expanduser("~"), ".config", "ordo", "egress.json")
+        try:
+            with open(cfg_path, encoding="utf-8") as fh:
+                return str(json.load(fh).get("parliament_proxy") or "").strip()
+        except (OSError, ValueError):
+            return ""
+
+    def _opener(self):
+        """Return a proxy-routed opener for this origin, else None (direct)."""
+        proxy = self._parliament_proxy()
+        if not proxy:
+            return None
+        cached = getattr(self, "_proxy_opener", None)
+        if cached is not None and cached[0] == proxy:
+            return cached[1]
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+        self._proxy_opener = (proxy, opener)
+        return opener
 
     # Most useful billTypeId values (full list: bill_types())
     BILL_TYPES = {

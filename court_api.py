@@ -99,6 +99,10 @@ class _BaseAPI:
             time.sleep(self.rate_limit - elapsed)
         self._last_request_time = time.time()
 
+    def _opener(self):
+        """Optional urllib opener override (e.g. a proxy-routed one). None = direct urlopen."""
+        return None
+
     def _request(self, url: str, method: str = "GET",
                  json_payload: Optional[dict] = None,
                  accept_json: bool = False, retries: int = 2) -> str:
@@ -123,7 +127,9 @@ class _BaseAPI:
         for attempt in range(retries + 1):
             try:
                 req = urllib.request.Request(url, data=body, headers=headers, method=method)
-                with urllib.request.urlopen(req, timeout=30) as resp:
+                opener = self._opener()
+                stream = opener.open(req, timeout=30) if opener is not None else urllib.request.urlopen(req, timeout=30)
+                with stream as resp:
                     for header in resp.headers.get_all("Set-Cookie") or []:
                         m = re.match(r"([^=]+)=([^;]+)", header.strip())
                         if m:
