@@ -391,3 +391,17 @@ Then add to Claude Desktop:
   <br>
   <sub>If this tool helps you, star it on GitHub ⭐ — it means a lot to a small dev from Batumi</sub>
 </p>
+
+## Parliament (info.parliament.ge) behind a WAF
+
+`info.parliament.ge` returns **HTTP 403** to datacenter IPs while the same request from a Georgian
+residential IP returns 200. If you have such an egress exposed as an **HTTP proxy**, point Ordo at it —
+only `ParliamentAPI` traffic is routed through it, every other source stays direct:
+
+```bash
+export ORDO_PARLIAMENT_PROXY=http://127.0.0.1:8080      # or:
+mkdir -p ~/.config/ordo && printf '{"parliament_proxy":"http://127.0.0.1:8080"}' > ~/.config/ordo/egress.json
+```
+
+Unset means direct requests (and the 403 stays). Any SOCKS5-only egress can be bridged to HTTP in
+~100 lines of stdlib (see the `socks-http-bridge` pattern); no dependency is added to Ordo itself.
