@@ -310,6 +310,8 @@ class ParliamentAPI(_BaseAPI):
             if len(batch) < self.PAGE_MAX:
                 break
             page += 1
+            if page > 20:  # safety valve: a package this large is not expected
+                break
         return {"package_id": package_id, "total": total if total is not None else len(items),
                 "bills": [self._normalize_bill(i) for i in items]}
 
