@@ -36,12 +36,14 @@ agents — keep tool descriptions self-explanatory and outputs citeable):
   dependency is fine when a feature needs it; prefer permissive licenses (the project is MIT —
   AGPL libraries such as pymupdf are out).
 - **MCP:** `mcp>=1.0.0,<2.0.0` — the `<2.0.0` pin is required: mcp 2.x removed `mcp.server.fastmcp`.
-- **No tests, no CI/CD** — verify changes by running each wrapper's `__main__` live test (hits the real internet; HUDOC rate-limits if run repeatedly).
+- **Tests:** `tests/` is an offline pytest suite (parsers, no network); `smoke_offline.py` imports every module and runs the same parser assertions. Live behaviour is still verified by each wrapper's `__main__` test (hits the real internet; HUDOC rate-limits if run repeatedly).
 - **Git:** remote `https://github.com/sitechfromgeorgia/ordo-mcp.git`, branch `master`. Author identity `Sitech From Georgia <sitechfromgeorgia@example.com>` is set in repo-local config. `docs/` and `index.html` are unrelated untracked scratch files — stage files explicitly, never `git add -A`.
 
 ## Commands
 
 ```sh
+uvx pytest -q tests                          # offline unit tests (no network)
+python smoke_offline.py                      # offline import + parser smoke (no network)
 python matsne_api.py                        # live test: matsne legislation
 python court_api.py                         # live test: ecd + supreme + grand chamber
 python higher_courts_api.py                 # live test: constcourt + echr (HUDOC)
