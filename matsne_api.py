@@ -34,7 +34,7 @@ import urllib.request
 import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import ClassVar, Optional
 
 _SUPERSCRIPT = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 _UNSUPERSCRIPT = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
@@ -130,6 +130,99 @@ class MatsneAPI:
 
     # ── Public API Endpoints ───────────────────────────────────
 
+    # /document/search form values for the document-type filter.  The site's
+    # `type` field is NOT the document type — it selects main (consolidated)
+    # vs all documents.  The real filter is `group`, and passing a type name
+    # in `type` is silently ignored by the server (unfiltered results).
+    DOC_TYPES: ClassVar[dict[str, str]] = {
+        "კანონი": "1000003",
+        "პრეზიდენტის დეკრეტი": "4829717",
+        "გაეროს კომიტეტების გადაწყვეტილებები": "5407986",
+        "საერთაშორისო ხელშეკრულება": "1319499",
+        "ბრძანებულება": "1000005",
+        "ბრძანება": "1000006",
+        "დადგენილება": "458",
+        "საქართველოს პარლამენტის რეზოლუცია": "1333937",
+        "თვითმმართველობის დადგენილება": "1000008",
+        "თვითმმართველობის გადაწყვეტილება": "1000007",
+        "თვითმმართველობის ბრძანება": "1000009",
+        "საკონსტიტუციო სასამართლოს გადაწყვეტილება": "1093052",
+        "საჯარო გადაწყვეტილება": "4312168",
+        "განკარგულება": "1065776",
+        "ევროკავშირის კანონმდებლობა": "3591321",
+        "ტექნიკური რეგლამენტების რეესტრი": "2208474",
+        "სასამართლოს აქტები": "1176355",
+        "ინდივიდუალური სამართლებრივი აქტი": "1151616",
+        "სახელმწიფო სამართლებრივი ზედამხედველობის ანგარიში": "3193200",
+        "ქ.თბილისის მერიის ინდივიდუალური სამართლებრივი აქტი": "2796892",
+        "შემოსავლების სამსახურის ბრძანებები": "1365174",
+        "ნორმატიული აქტების პროექტები": "1776650",
+        "სიტუაციური სახელმძღვანელო": "1730670",
+        "საჯარო დაწესებულების ანგარიში": "2106337",
+        "განცხადება": "1000010",
+        "ხელშეკრულება": "1000004",
+        "განმარტებები": "1629214",
+        "აქტი": "4801356",
+        "პროექტი": "4800792",
+    }
+
+    @classmethod
+    def _doc_type_id(cls, doc_type: str) -> Optional[str]:
+        """Resolve a document-type label (or numeric id) to the site's group id."""
+        value = " ".join(str(doc_type).split())
+        if value.isdigit():
+            return value
+        if value in cls.DOC_TYPES:
+            return cls.DOC_TYPES[value]
+        # tolerate the common "საქართველოს კანონი" form
+        prefix = "საქართველოს "
+        if value.startswith(prefix) and value[len(prefix):] in cls.DOC_TYPES:
+            return cls.DOC_TYPES[value[len(prefix):]]
+        return None
+
+    def _search_params(self, page: int = 0, query: str = "", limit: int = 20,
+                       sort: str = "", issuer: str = "", doc_type: str = "",
+                       number: str = "", registration_code: str = "",
+                       date_from: str = "", date_to: str = "") -> dict:
+        """Build /document/search query params (pure — no HTTP).
+
+        The site's pagination is 1-based (`?page=2` is the second page); the
+        public API is 0-based, so `page=1` must request site page 2.
+        """
+        try:
+            page = max(0, int(page))
+        except (TypeError, ValueError):
+            return {"error": f"page must be an integer, got {page!r}"}
+        params: dict = {"page": page + 1, "is-ajax": 1}
+        if query:
+            params["query"] = query
+        if limit != 20:
+            params["limit"] = limit
+        if sort:
+            params["sort"] = sort
+        if issuer:
+            params["issuer"] = issuer
+        if doc_type:
+            scope = doc_type.strip().lower()
+            if scope in ("main", "all"):
+                # legacy scope switch: main = consolidated documents only
+                params["type"] = scope
+            else:
+                group = self._doc_type_id(doc_type)
+                if group is None:
+                    return {"error": f"Unknown doc_type '{doc_type}'",
+                            "available": sorted(self.DOC_TYPES)}
+                params["group"] = group
+        if number:
+            params["number"] = number
+        if registration_code:
+            params["registration_code"] = registration_code
+        if date_from:
+            params["signing_date_fr[date]"] = date_from
+        if date_to:
+            params["signing_date_to[date]"] = date_to
+        return params
+
     def suggest(self, text: str) -> list[dict]:
         """
         POST /document/suggest — autocomplete search.
@@ -163,12 +256,14 @@ class MatsneAPI:
         Uses is-ajax=1 parameter to get JSON instead of full HTML page.
 
         Args:
-            page: Page number (0-indexed)
+            page: Page number (0-indexed; page=0 is the first page)
             query: Full-text search query
             limit: Results per page (5, 10, 20, 30, 50, 100)
             sort: Sort order (e.g., 'publishDate_desc')
             issuer: Document issuer/organ filter
-            doc_type: Document type filter
+            doc_type: Document type filter — a label from DOC_TYPES (e.g.
+                'კანონი', 'დადგენილება') or its numeric group id. The legacy
+                scope values 'main' (consolidated only) and 'all' are also accepted.
             number: Document number filter
             registration_code: Registration code filter
             date_from: Date from (DD/MM/YYYY format)
@@ -177,25 +272,13 @@ class MatsneAPI:
         Returns:
             {"documents": [...], "count": int, "raw_pagination": str}
         """
-        params = {"page": page, "is-ajax": 1}
-        if query:
-            params["query"] = query
-        if limit != 20:
-            params["limit"] = limit
-        if sort:
-            params["sort"] = sort
-        if issuer:
-            params["issuer"] = issuer
-        if doc_type:
-            params["type"] = doc_type
-        if number:
-            params["number"] = number
-        if registration_code:
-            params["registration_code"] = registration_code
-        if date_from:
-            params["signing_date_fr[date]"] = date_from
-        if date_to:
-            params["signing_date_to[date]"] = date_to
+        params = self._search_params(
+            page=page, query=query, limit=limit, sort=sort, issuer=issuer,
+            doc_type=doc_type, number=number, registration_code=registration_code,
+            date_from=date_from, date_to=date_to,
+        )
+        if "error" in params:
+            return params
 
         url = f"{self.BASE}/{self.lang}/document/search?{urllib.parse.urlencode(params)}"
         raw = self._request(url, accept_json=True)
@@ -658,7 +741,9 @@ class MatsneAPI:
                 "status": meta.status,
                 "expiry_date": meta.expiry_date,
             }
-            result["text"] = meta.text
+            # Full body text, not parse_document_meta()'s 500-line preview:
+            # a code like the Civil Code is ~6,500 lines and was silently cut.
+            result["text"] = self._maindoc_text(html)
 
         # If HTML text is empty/missing, use tree-based fallback (current version only)
         if result["tree"] and not result["text"] and publication is None:
@@ -779,7 +864,10 @@ class MatsneAPI:
     @staticmethod
     def _fragment_to_text(fragment: str) -> str:
         """HTML fragment → plain text; <sup>1</sup> becomes ¹ (151¹ style)."""
-        s = re.sub(r'\s+', ' ', fragment)
+        # DOCX-derived matsne bodies embed <style> blocks (p.MsoNormal …);
+        # stripping only tags left CSS at the top of full-document text.
+        s = re.sub(r'<(script|style)\b[^>]*>.*?</\1>', ' ', fragment, flags=re.S | re.I)
+        s = re.sub(r'\s+', ' ', s)
         s = re.sub(r'<sup>\s*(\d+)\s*</sup>',
                    lambda m: m.group(1).translate(_SUPERSCRIPT), s)
         s = re.sub(r'<br\s*/?>|</p>|</div>|</li>|</tr>|</h\d>', '\n', s, flags=re.I)
@@ -787,6 +875,20 @@ class MatsneAPI:
         s = html_lib.unescape(s).replace('\xa0', ' ')
         lines = [re.sub(r'[ \t\r]+', ' ', l).strip() for l in s.split('\n')]
         return '\n'.join(l for l in lines if l)
+
+    def _maindoc_text(self, html: str) -> str:
+        """Full text of the document body (no 500-line cap, no footer/scripts)."""
+        start = html.find('id="maindoc"')
+        if start >= 0:
+            tag_end = html.find('>', start)
+            body = html[tag_end + 1:] if tag_end >= 0 else html[start:]
+        else:
+            body = html
+        for marker in ('<script', '<div class="modal', '<div id="footer-wrapper"'):
+            cut = body.find(marker)
+            if cut > 0:
+                body = body[:cut]
+        return self._fragment_to_text(body)
 
     @staticmethod
     def _article_key(article) -> str:
@@ -807,6 +909,21 @@ class MatsneAPI:
                 continue
         return None
 
+    @staticmethod
+    def _core_law_match(stem: str, low: str) -> bool:
+        """Whole-word match for English stems; Georgian stems tolerate case endings.
+
+        A plain substring check made "Law on the Constitutional Court" resolve to
+        the Constitution (both contain "constitution"/"კონსტიტუცი"), silently
+        returning articles of the wrong act.
+        """
+        if stem.isascii():
+            return re.search(rf"(?<![a-z]){re.escape(stem)}(?![a-z])", low) is not None
+        if stem == "კონსტიტუცი":
+            # allow კონსტიტუცია/კონსტიტუციის, but not კონსტიტუციური/საკონსტიტუციო
+            return re.search(r"კონსტიტუცი(?!ო|უ)", low) is not None
+        return stem in low
+
     def resolve_law(self, law: str) -> dict:
         """
         Resolve a law name (Georgian or English, any grammatical case) or a
@@ -825,7 +942,7 @@ class MatsneAPI:
             return {"doc_id": int(law), "title": "", "resolved_by": "id"}
         low = law.lower()
         for stem, doc_id in self.CORE_LAWS.items():
-            if stem in low:
+            if self._core_law_match(stem, low):
                 return {"doc_id": doc_id, "title": stem, "resolved_by": "core_table"}
         hits = [s for s in self.suggest(law) if "error" not in s]
         if not hits:
@@ -1102,10 +1219,7 @@ class MatsneAPI:
         html = self.get_document_html(doc_id, publication)
         err = self._html_error(html)
         if not err:
-            start = html.find('id="maindoc"')
-            body = html[start:] if start >= 0 else html
-            script = body.find('<script')
-            text = self._fragment_to_text(body[:script] if script > 0 else body)
+            text = self._maindoc_text(html)
             return {"doc_id": doc_id, "publication": publication, "text": text, "source": "view_page"}
         if publication is not None:
             return {"doc_id": doc_id, "publication": publication, "error": err}

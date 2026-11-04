@@ -128,7 +128,7 @@ def matsne_suggest(text: str) -> list[dict]:
     return matsne.suggest(text)
 
 
-@app.tool(description="Full-text legislative search with filters. Supports pagination, date range (DD/MM/YYYY), document type, issuer organ, and sort order.")
+@app.tool(description="Full-text legislative search with filters. Supports pagination (page is 0-indexed), date range (DD/MM/YYYY), document type (name from matsne_api.MatsneAPI.DOC_TYPES, e.g. 'კანონი'/'დადგენილება', or its numeric id), issuer organ, and sort order.")
 def matsne_search(
     page: int = 0,
     query: str = "",

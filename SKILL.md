@@ -129,12 +129,14 @@ Accept-Language: ka,en;q=0.9
 ### 2. GET /ka/document/search?is-ajax=1 — Search
 
 **Parameters:**
-- `page` — Page number (0-indexed)
+- `page` — Page number (0-indexed; the site's own `?page=N` is 1-based)
 - `query` — Full-text search
 - `limit` — Results per page (5, 10, 20, 30, 50, 100)
 - `sort` — Sort order (e.g., `publishDate_desc`)
 - `issuer` — Document issuer filter
-- `type` — Document type filter
+- `group` — Document type filter (label or numeric id; the wrapper accepts
+  `doc_type='კანონი'` and maps it here). `type` is **not** the document type —
+  it selects `main` (consolidated only) vs `all` documents.
 - `number` — Document number
 - `registration_code` — Registration code
 - `signing_date_fr[date]` — Date from (DD/MM/YYYY)

@@ -71,8 +71,16 @@ def _parse_csharp_date(value: str) -> str:
 
 
 def _html_to_text(html_fragment: str) -> str:
-    """Strip tags + unescape entities → clean plain-text lines."""
-    text = _html_lib.unescape(html_fragment)
+    """Strip tags + unescape entities → clean plain-text lines.
+
+    Script/style bodies are dropped before tag stripping: HUDOC's HTML export
+    embeds a <style> block, and stripping only the tags used to leave CSS
+    (".s800EAC49 { font-size:12pt } …") at the top of every ECHR decision.
+    """
+    text = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", " ", html_fragment,
+                  flags=re.S | re.I)
+    text = re.sub(r"<!--.*?-->", " ", text, flags=re.S)
+    text = _html_lib.unescape(text)
     text = re.sub(r"<[^>]+>", "\n", text)
     lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
     return "\n".join(lines)

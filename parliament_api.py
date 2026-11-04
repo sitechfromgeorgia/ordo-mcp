@@ -290,11 +290,28 @@ class ParliamentAPI(_BaseAPI):
 
     def get_package_bills(self, package_id: int) -> dict:
         """All bills in one legislative package (a main law + its accompanying amendments)."""
-        res = self._get_json(f"/law/1/billPackage/{package_id}/bill", {"page": 1, "start": 0, "limit": 100})
-        if "error" in res:
-            return res
-        items = res.get("list", res) if isinstance(res, dict) else res
-        return {"package_id": package_id, "bills": [self._normalize_bill(i) for i in items]}
+        # PAGE_MAX is a server limit: a larger `limit` returns an empty body,
+        # so a 100-row request used to make every package look empty.
+        items, page, total = [], 1, None
+        while True:
+            res = self._get_json(f"/law/1/billPackage/{package_id}/bill",
+                                 {"page": page, "start": (page - 1) * self.PAGE_MAX,
+                                  "limit": self.PAGE_MAX})
+            if "error" in res:
+                return res
+            batch = (res.get("list") or []) if isinstance(res, dict) else res
+            if not batch:
+                break
+            items.extend(batch)
+            if total is None and isinstance(res, dict):
+                total = res.get("total")
+            if total is not None and len(items) >= int(total):
+                break
+            if len(batch) < self.PAGE_MAX:
+                break
+            page += 1
+        return {"package_id": package_id, "total": total if total is not None else len(items),
+                "bills": [self._normalize_bill(i) for i in items]}
 
 
 # ── CLI Test ───────────────────────────────────────────────────

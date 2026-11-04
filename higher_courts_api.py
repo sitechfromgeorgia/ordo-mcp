@@ -108,6 +108,21 @@ class ConstitutionalCourtAPI(_BaseAPI):
             })
         return items
 
+    @staticmethod
+    def _extract_act_title(html: str) -> str:
+        """Title of the act on a detail page.
+
+        The page has two H1s: the site header ("საქართველოს საკონსტიტუციო
+        სასამართლო") and the act title inside #printablePageContent. Picking
+        the first H1 made every constitutional_get_act return the site name.
+        """
+        m = re.search(r'id="printablePageContent"[^>]*>.*?<h1[^>]*>(.*?)</h1>',
+                      html, re.DOTALL)
+        if m:
+            return _html_to_text(m.group(1)).strip()
+        h1s = re.findall(r'<h1[^>]*>(.*?)</h1>', html, re.DOTALL)
+        return _html_to_text(h1s[1]).strip() if len(h1s) > 1 else ""
+
     def get_act(self, legal_id: int) -> dict:
         """
         Get a full Constitutional Court act by its legal id.
@@ -119,10 +134,7 @@ class ConstitutionalCourtAPI(_BaseAPI):
         if html.startswith("ERROR"):
             return {"error": html}
         text = self._extract_act_text(html)
-        title = ""
-        tm = re.search(r'<h1[^>]*>(.*?)</h1>', html, re.DOTALL)
-        if tm:
-            title = _html_to_text(tm.group(1))
+        title = self._extract_act_title(html)
         return {
             "id": legal_id,
             "title": title,
